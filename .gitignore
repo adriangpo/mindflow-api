@@ -1,0 +1,117 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.virtualenv
+virtualenv/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+.pytest_cache
+*.cover
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+test.db
+test_*.db
+
+# Environment variables
+.env
+.env.test
+.env.local
+.env.*.local
+.env.production
+.env.staging
+.env.development
+*.env
+
+# IDE - VS Code specific
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+*.lnk
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+*~
+tmp/
+
+# Logs
+*.log
+logs/
+
+# Distribution
+build/
+dist/
+*.whl
+
+# Alembic migrations
+alembic/versions/__pycache__/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Project specific
+.pytest_cache
+
+# Agent Memory
+AGENT_MEMORY*

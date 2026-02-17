@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mindflow-postgres
+    environment:
+      POSTGRES_USER: mindflow
+      POSTGRES_PASSWORD: mindflow
+      POSTGRES_DB: mindflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_test:
+    image: postgres:16-alpine
+    container_name: mindflow-postgres-test
+    environment:
+      POSTGRES_USER: mindflow_test
+      POSTGRES_PASSWORD: mindflow_test
+      POSTGRES_DB: mindflow_test
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mindflow_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data
+
+volumes:
+  postgres_data:

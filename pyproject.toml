@@ -1,0 +1,138 @@
+[project]
+name = "mindflow-api"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "fastapi[standard]>=0.129.0",
+    "uvicorn>=0.40.0",
+    "pydantic-settings>=2.0.0",
+    "pyjwt>=2.8.0",
+    "pwdlib[argon2]>=0.2.0",
+    "python-multipart>=0.0.6",
+    "email-validator>=2.1.0",
+    "asgi-lifespan>=2.1.0",
+    "slowapi>=0.1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.24.0",
+    "black>=24.1.0",
+    "ruff>=0.2.0",
+    "mypy>=1.8.0",
+    "aiosqlite>=0.19.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers --strict-config"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py314"]
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.git
+  | \.venv
+  | __pycache__
+  | \.pytest_cache
+  | \.mypy_cache
+)/
+'''
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes (unused imports, undefined names)
+    "I",      # isort (import sorting)
+    "N",      # pep8-naming
+    "D",      # pydocstyle (docstrings)
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C",      # flake8-comprehensions
+    "ARG",    # flake8-unused-arguments
+    "RUF",    # Ruff-specific rules
+]
+ignore = [
+    "D100",   # Missing module docstring
+    "D101",   # Missing class docstring
+    "D103",   # Missing function docstring
+    "D104",   # Missing package docstring
+    "D106",   # Missing docstring in public nested class
+    "D107",   # Missing docstring in __init__
+    "D205",   # Blank line after docstring
+    "D400",   # First line should end with period
+    "D401",   # First line should be imperative
+    "D415",   # First line should end with punctuation
+    "E501",   # Line too long (black handles this)
+    "ARG001", # Unused function argument (common in FastAPI dependencies)
+    "B008",   # Do not perform function call in argument defaults (FastAPI pattern)
+    "B017",   # Assert blind exception (valid for pytest.raises patterns)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["RUF059", "D102"]  # Allow unpacked fixture vars and missing docstrings in tests (we only need client sometimes)
+
+[tool.mypy]
+python_version = "3.14"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+strict_optional = true
+follow_imports = "normal"
+ignore_missing_imports = false
+check_untyped_defs = true
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = [
+    "sqlalchemy.*",
+    "alembic.*",
+    "aiosqlite.*",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "motor.*",
+    "pymongo.*",
+    "beanie.*",
+    "mongomock_motor.*",
+]
+ignore_missing_imports = true
+
+[tool.alembic]
+# Alembic configuration
+script_location = "alembic"
+file_template = "%%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s"
+timezone = "UTC"
+truncate_slug_length = 40
+version_path_separator = "os"
