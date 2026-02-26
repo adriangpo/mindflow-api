@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 
+from src.database.client import get_session
 from src.features.auth.dependencies import get_current_user
 from src.features.auth.exceptions import InvalidTokenException
 from src.features.user.models import UserRole
@@ -41,12 +42,13 @@ async def admin_docs_middleware(request: Request, call_next):
             )
 
         try:
-            user = await get_current_user(credentials)
-            if UserRole.ADMIN.value not in user.roles:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "Insufficient permissions."},
-                )
+            async with get_session() as session:
+                user = await get_current_user(credentials, session=session)
+                if UserRole.ADMIN.value not in user.roles:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Insufficient permissions."},
+                    )
         except InvalidTokenException, Exception:
             return JSONResponse(
                 status_code=403,

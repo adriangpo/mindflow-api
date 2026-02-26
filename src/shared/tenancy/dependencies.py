@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, Request
 
 
-async def require_tenant(request: Request) -> str:
+async def require_tenant(request: Request) -> UUID:
     """Dependency that requires X-Tenant-ID header to be present.
 
     This dependency should be applied at the router level using
@@ -16,7 +16,7 @@ async def require_tenant(request: Request) -> str:
         request: The incoming FastAPI request
 
     Returns:
-        The tenant ID string
+        The tenant ID as a UUID
 
     Raises:
         HTTPException: 400 Bad Request if X-Tenant-ID is missing
@@ -39,11 +39,11 @@ async def require_tenant(request: Request) -> str:
 
     # Validate that tenant_id is a valid UUID
     try:
-        UUID(tenant_id)
+        tenant_uuid = UUID(tenant_id)
     except ValueError, AttributeError:
         raise HTTPException(
             status_code=400,
             detail="X-Tenant-ID must be a valid UUID",
         ) from None
 
-    return tenant_id
+    return tenant_uuid

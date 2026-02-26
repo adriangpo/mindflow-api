@@ -43,7 +43,7 @@ async def lifespan(_: FastAPI):
 
 
 # Admin-only API documentation
-# Routes are protected by require_role(UserRole.ADMIN) middleware
+# Routes are protected by admin_docs_middleware
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,

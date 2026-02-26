@@ -107,17 +107,17 @@ src/
 - `POST /api/auth/refresh` - Refresh access token
 
 #### Authenticated Endpoints
-- `GET /api/auth/me` - Get current user profile
-- `PUT /api/auth/me` - Update current user profile
-- `POST /api/auth/me/change-password` - Change password
+- `GET /api/users/me` - Get current user profile
+- `PUT /api/users/me` - Update current user profile
+- `POST /api/users/me/change-password` - Change password
 - `POST /api/auth/logout` - Logout (revoke refresh token)
 
 #### Admin Endpoints
-- `POST /api/auth/register` - Register new user
-- `GET /api/auth/users` - List all users
-- `GET /api/auth/users/{user_id}` - Get user by ID
-- `PUT /api/auth/users/{user_id}` - Update user
-- `DELETE /api/auth/users/{user_id}` - Delete user
+- `POST /api/users` - Register new user
+- `GET /api/users` - List all users
+- `GET /api/users/{user_id}` - Get user by ID
+- `PUT /api/users/{user_id}` - Update user
+- `DELETE /api/users/{user_id}` - Delete user
 
 ### Using Authentication
 
@@ -140,7 +140,7 @@ Response:
 
 2. **Use Access Token:**
 ```bash
-curl -X GET "http://localhost:8000/api/auth/me" \
+curl -X GET "http://localhost:8000/api/users/me" \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
@@ -165,8 +165,7 @@ Key configuration options:
 # Application
 DEBUG=False
 
-# MongoDB
-MONGODB_URL=mongodb://localhost:27017
+# PostgreSQL
 POSTGRES_URL=postgresql+asyncpg://user:password@localhost:5432/dbname
 
 # Security (CHANGE IN PRODUCTION!)
