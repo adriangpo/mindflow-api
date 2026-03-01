@@ -4,6 +4,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 
+from src.config.settings import settings
 from src.database.client import get_session
 from src.features.auth.dependencies import get_current_user
 from src.features.auth.exceptions import InvalidTokenException
@@ -30,7 +31,7 @@ async def admin_docs_middleware(request: Request, call_next):
     """
     protected_paths = {"/docs", "/redoc", "/openapi.json"}
 
-    if request.url.path in protected_paths:
+    if request.url.path in protected_paths and settings.environment != "development":
         # Check if user is authenticated and has admin role
         security = HTTPBearer(auto_error=False)
         credentials = await security(request)
