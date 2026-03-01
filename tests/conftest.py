@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, c
 
 from src.database.base import Base
 from src.database.client import set_tenant_context
-from src.database.dependencies import get_db_session
+from src.database.dependencies import get_db_session, get_tenant_db_session
 from src.features.auth.dependencies import get_current_active_user, get_current_user
 from src.features.user.models import User, UserRole, UserStatus
 from src.main import app
@@ -38,7 +38,7 @@ os.environ["TESTING"] = "true"
 # Event Loop Management
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")  # type: ignore
 def event_loop():
     """Create a single event loop for the entire test session."""
     # Use asyncio.new_event_loop() which uses the current policy
@@ -51,7 +51,7 @@ def event_loop():
 # Tenant Management
 
 
-@pytest_asyncio.fixture(scope="function")
+@pytest_asyncio.fixture(scope="function")  # type: ignore
 def tenant_id() -> UUID:
     """Create a unique test tenant ID for each test.
 
@@ -182,6 +182,7 @@ async def override_get_db_session(session: AsyncSession):
         yield session
 
     app.dependency_overrides[get_db_session] = _get_test_session
+    app.dependency_overrides[get_tenant_db_session] = _get_test_session
     yield
     app.dependency_overrides.clear()
 

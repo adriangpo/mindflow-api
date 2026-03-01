@@ -2,9 +2,10 @@
 
 import logging
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import DateTime, Enum, Integer, String, event, inspect
 from sqlalchemy.dialects.postgresql import JSONB
@@ -75,8 +76,12 @@ _AUDIT_BEFORE_STATE_ATTR = "__audit_before_state__"
 
 def _serialize_value(value: Any) -> Any:
     """Serialize scalar values for JSON storage in audit records."""
-    if isinstance(value, datetime):
+    if isinstance(value, (datetime, date, time)):
         return value.isoformat()
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, StrEnum):
+        return value.value
     return value
 
 
@@ -100,7 +105,7 @@ def _insert_audit_row(
     diff = compute_diff(before, after) if action == AuditAction.UPDATE and before and after else None
 
     connection.execute(
-        AuditLog.__table__.insert().values(     # type: ignore
+        AuditLog.__table__.insert().values(  # type: ignore
             entity_type=target.__tablename__,
             document_id=_get_document_id(target),
             action=action.value,
@@ -165,11 +170,7 @@ def serialize_model(instance: Any) -> dict[str, Any] | None:
 
     for column in mapper.columns:
         value = getattr(instance, column.name)
-        # Convert datetime to ISO format for JSON serialization
-        if isinstance(value, datetime):
-            data[column.name] = value.isoformat()
-        else:
-            data[column.name] = value
+        data[column.name] = _serialize_value(value)
 
     return data
 
@@ -281,7 +282,6 @@ def setup_audit_listeners(model_class: type[Base]) -> None:
         setup_audit_listeners(RefreshToken)
 
     """
-
     # Backward-compatible no-op. AuditableMixin listeners are now automatic.
     _ = model_class
 

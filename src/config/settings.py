@@ -66,6 +66,21 @@ class Settings(BaseSettings):
             raise ValueError(f"Environment must be one of {valid_envs}, got {env}")
         return env
 
+    @field_validator("debug", mode="before")
+    @classmethod
+    def validate_debug(cls, v: bool | str) -> bool:
+        """Normalize debug values from environment inputs."""
+        if isinstance(v, bool):
+            return v
+
+        value = str(v).strip().lower()
+        if value in {"1", "true", "yes", "on", "debug"}:
+            return True
+        if value in {"0", "false", "no", "off", "release", ""}:
+            return False
+
+        raise ValueError(f"Invalid debug value: {v}")
+
     def get_cors_configuration(self) -> CORSConfiguration:
         """Get CORS configuration based on environment settings.
 

@@ -209,7 +209,7 @@ class TestUserServicePassword:
         await session.commit()
 
         updated_user = await UserService.get_user(session, user.id)
-        
+
         assert updated_user is not None
         assert updated_user.updated_at > original_updated_at
 
@@ -1069,7 +1069,7 @@ class TestUserIsLoggedInProperty:
 
         # Verify it persists
         retrieved = await UserService.get_user(session, user.id)
-        
+
         assert retrieved is not None
         assert retrieved.is_logged_in is True
 
@@ -1089,7 +1089,7 @@ class TestUserIsLoggedInProperty:
 
         # Verify it persists
         retrieved = await UserService.get_user(session, user.id)
-        
+
         assert retrieved is not None
         assert retrieved.is_logged_in is False
 
@@ -1113,7 +1113,7 @@ class TestUserIsLoggedInProperty:
         assert retrieved1 is not None
         assert retrieved2 is not None
         assert retrieved3 is not None
-        
+
         assert retrieved1.is_logged_in is True
         assert retrieved2.is_logged_in is False
         assert retrieved3.is_logged_in is True
@@ -1133,7 +1133,7 @@ class TestUserIsLoggedInProperty:
 
         # Verify in DB
         retrieved = await UserService.get_user(session, user.id)
-        
+
         assert retrieved is not None
         assert retrieved.full_name == "Updated Name"
         assert retrieved.is_logged_in is True
@@ -1177,7 +1177,7 @@ class TestUserIsLoggedInProperty:
 
         # Retrieve and verify
         retrieved = await UserService.get_user(session, user.id)
-        
+
         assert retrieved is not None
         assert retrieved.is_logged_in is True
 
