@@ -41,9 +41,7 @@ class TenantService:
         return slug[:120].rstrip("-")
 
     @staticmethod
-    async def _ensure_slug_available(
-        session: AsyncSession, slug: str, exclude_tenant_id: UUID | None = None
-    ) -> None:
+    async def _ensure_slug_available(session: AsyncSession, slug: str, exclude_tenant_id: UUID | None = None) -> None:
         """Ensure a slug is not already used by another tenant."""
         stmt = select(Tenant).where(Tenant.slug == slug)
         if exclude_tenant_id is not None:
@@ -85,7 +83,7 @@ class TenantService:
         else:
             slug = await TenantService._generate_unique_slug(session, data.name)
 
-        tenant = Tenant(name=data.name, slug=slug, is_active=data.is_active)
+        tenant = Tenant(name=data.name, slug=slug, is_active=True)
         session.add(tenant)
         logger.info(f"Tenant created: {tenant.slug}")
         return tenant
@@ -123,18 +121,13 @@ class TenantService:
             tenant.name = data.name
 
             if data.slug is None:
-                tenant.slug = await TenantService._generate_unique_slug(
-                    session, data.name, exclude_tenant_id=tenant.id
-                )
+                tenant.slug = await TenantService._generate_unique_slug(session, data.name, exclude_tenant_id=tenant.id)
 
         if data.slug is not None:
             normalized_slug = TenantService._normalize_and_validate_slug(data.slug)
             if normalized_slug != tenant.slug:
                 await TenantService._ensure_slug_available(session, normalized_slug, exclude_tenant_id=tenant.id)
                 tenant.slug = normalized_slug
-
-        if data.is_active is not None:
-            tenant.is_active = data.is_active
 
         tenant.updated_at = datetime.now(UTC)
         logger.info(f"Tenant updated: {tenant.id}")

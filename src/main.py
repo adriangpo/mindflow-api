@@ -1,11 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
-from fastapi.openapi.utils import get_openapi
-from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -46,9 +47,82 @@ async def lifespan(_: FastAPI):
     await close_db()
 
 
+class CustomFastAPI(FastAPI):
+    def openapi(self) -> dict[str, Any]:
+        """Generate and return the customized OpenAPI schema.
+
+        This override extends FastAPI's default OpenAPI generation by
+        registering a global ``TenantHeader`` security scheme and applying
+        it only to routes that depend on the ``require_tenant`` dependency.
+
+        The generated schema is cached in ``self.openapi_schema`` to avoid
+        recomputation on subsequent calls.
+
+        Returns:
+            dict[str, Any]: The OpenAPI schema dictionary.
+
+        """
+        if self.openapi_schema:
+            return self.openapi_schema
+
+        openapi_schema: dict[str, Any] = get_openapi(
+            title=self.title,
+            version=self.version,
+            description=self.description,
+            routes=self.routes,
+        )
+
+        # Ensure components/securitySchemes exist
+        components = openapi_schema.setdefault("components", {})
+        security_schemes = components.setdefault("securitySchemes", {})
+
+        # Register tenant header scheme
+        security_schemes["TenantHeader"] = {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Tenant-ID",
+            "description": "Tenant UUID used by tenant-protected endpoints.",
+        }
+
+        paths = openapi_schema.get("paths", {})
+
+        # Apply security only to routes that use require_tenant dependency
+        for route in self.routes:
+            if not isinstance(route, APIRoute):
+                continue
+
+            has_tenant_dependency = any(
+                dependency.call == require_tenant for dependency in route.dependant.dependencies
+            )
+
+            if not has_tenant_dependency:
+                continue
+
+            path_item = paths.get(route.path)
+            if not path_item:
+                continue
+
+            for method in route.methods or []:
+                method_lower = method.lower()
+                operation = path_item.get(method_lower)
+
+                if not operation:
+                    continue
+
+                existing_security = operation.get("security")
+
+                if existing_security:
+                    operation["security"] = [{**requirement, "TenantHeader": []} for requirement in existing_security]
+                else:
+                    operation["security"] = [{"TenantHeader": []}]
+
+        self.openapi_schema = openapi_schema
+        return self.openapi_schema
+
+
 # Admin-only API documentation
 # Routes are protected by admin_docs_middleware
-app = FastAPI(
+app = CustomFastAPI(
     title=settings.app_name,
     version=settings.app_version,
     lifespan=lifespan,
@@ -56,59 +130,6 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
-
-
-def custom_openapi():
-    """Customize OpenAPI schema with global tenant header support in Swagger UI."""
-    if app.openapi_schema:
-        return app.openapi_schema
-
-    openapi_schema = get_openapi(
-        title=app.title,
-        version=app.version,
-        description=app.description,
-        routes=app.routes,
-    )
-
-    components = openapi_schema.setdefault("components", {})
-    security_schemes = components.setdefault("securitySchemes", {})
-    security_schemes["TenantHeader"] = {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-Tenant-ID",
-        "description": "Tenant UUID used by tenant-protected endpoints.",
-    }
-
-    # Apply tenant header scheme only to routes protected by require_tenant dependency.
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
-
-        has_tenant_dependency = any(dependency.call == require_tenant for dependency in route.dependant.dependencies)
-        if not has_tenant_dependency:
-            continue
-
-        path_item = openapi_schema.get("paths", {}).get(route.path)
-        if not path_item:
-            continue
-
-        for method in route.methods:
-            method_lower = method.lower()
-            operation = path_item.get(method_lower)
-            if not operation:
-                continue
-
-            existing_security = operation.get("security")
-            if existing_security:
-                operation["security"] = [{**requirement, "TenantHeader": []} for requirement in existing_security]
-            else:
-                operation["security"] = [{"TenantHeader": []}]
-
-    app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-
-app.openapi = custom_openapi
 
 # Add rate limiting middleware
 app.state.limiter = limiter

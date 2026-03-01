@@ -10,7 +10,7 @@ class TenantCreateRequest(BaseModel):
     """Tenant creation request."""
 
     name: str = Field(..., min_length=2, max_length=255)
-    slug: str | None = Field(None, min_length=2, max_length=120)
+    slug: str | None = Field(default=None, min_length=2, max_length=120)
 
 
 class TenantUpdateRequest(BaseModel):
@@ -18,7 +18,6 @@ class TenantUpdateRequest(BaseModel):
 
     name: str | None = Field(None, min_length=2, max_length=255)
     slug: str | None = Field(None, min_length=2, max_length=120)
-    
     # For inactivating a tenant, use the delete route.
 
 

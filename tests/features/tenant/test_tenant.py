@@ -19,7 +19,7 @@ class TestTenantService:
     """Service layer tests for tenants."""
 
     async def test_create_tenant_success(self, session):
-        data = TenantCreateRequest(name="Acme Clinic", is_active=True)
+        data = TenantCreateRequest(name="Acme Clinic")
 
         tenant = await TenantService.create_tenant(session, data)
 
@@ -108,7 +108,6 @@ class TestTenantEndpoints:
         payload = update_response.json()
         assert payload["name"] == "New Name"
         assert payload["slug"] == "new-name"
-        assert payload["is_active"] is False
 
     async def test_delete_tenant(self, admin_client):
         client, admin_user = admin_client
