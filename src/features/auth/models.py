@@ -6,9 +6,10 @@ from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database.base import Base
+from src.shared.audit.audit import AuditableMixin
 
 
-class RefreshToken(Base):
+class RefreshToken(Base, AuditableMixin):
     """Refresh token for JWT token rotation.
 
     User-scoped model: tokens are globally scoped to users.

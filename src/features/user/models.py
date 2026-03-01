@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.database.base import Base, TimestampMixin
+from src.shared.audit.audit import AuditableMixin
 
 
 class UserRole(StrEnum):
@@ -47,7 +48,7 @@ class UserStatus(StrEnum):
 pwd_hasher = PasswordHash.recommended()
 
 
-class User(Base, TimestampMixin):
+class User(Base, TimestampMixin, AuditableMixin):
     """User model for authentication and authorization.
 
     Globally-scoped model: users are independent of tenants.

@@ -14,6 +14,7 @@ from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
 from src.features.user.router import router as user_router
+from src.shared.audit.audit_middleware import AuditContextMiddleware
 from src.shared.middlewares.docs_middleware import admin_docs_middleware
 from src.shared.tenancy.dependencies import require_tenant
 from src.shared.tenancy.tenant_middleware import TenantMiddleware
@@ -82,6 +83,7 @@ except CORSConfigurationError as exc:
 
 # Add tenant middleware for multi-tenancy support
 app.add_middleware(TenantMiddleware)
+app.add_middleware(AuditContextMiddleware)
 
 # Router Registration
 

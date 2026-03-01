@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_db_session
 from src.features.user.models import User, UserRole
+from src.shared.audit.audit import set_current_user
 
 from .exceptions import (
     InsufficientPermissionException,
@@ -70,6 +71,7 @@ async def get_current_user(
     if user.is_locked():
         raise UserLockedException()
 
+    set_current_user(user)
     return user
 
 

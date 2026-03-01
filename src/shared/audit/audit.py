@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 current_user_ctx: ContextVar = ContextVar("current_user", default=None)
 
 
+class AuditableMixin:
+    """Marker mixin for models that should generate audit logs automatically."""
+
+    __abstract__ = True
+
+
 class AuditAction(StrEnum):
     """Audit action types."""
 
@@ -62,6 +68,49 @@ class AuditLog(Base):
     before: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     after: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
+_AUDIT_BEFORE_STATE_ATTR = "__audit_before_state__"
+
+
+def _serialize_value(value: Any) -> Any:
+    """Serialize scalar values for JSON storage in audit records."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
+
+
+def _get_document_id(target: Any) -> str:
+    """Resolve primary key value to string for audit records."""
+    pk_name = inspect(target.__class__).primary_key[0].name
+    value = getattr(target, pk_name, None)
+    return str(value) if value is not None else "unknown"
+
+
+def _insert_audit_row(
+    connection,
+    target: Any,
+    action: AuditAction,
+    before: dict[str, Any] | None,
+    after: dict[str, Any] | None,
+) -> None:
+    """Insert a raw audit row using the current transaction connection."""
+    user = current_user_ctx.get()
+    user_id = str(user.id) if user and hasattr(user, "id") else None
+    diff = compute_diff(before, after) if action == AuditAction.UPDATE and before and after else None
+
+    connection.execute(
+        AuditLog.__table__.insert().values(     # type: ignore
+            entity_type=target.__tablename__,
+            document_id=_get_document_id(target),
+            action=action.value,
+            timestamp=datetime.now(UTC),
+            user_id=user_id,
+            before=before,
+            after=after,
+            diff=diff,
+        )
+    )
 
 
 def compute_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
@@ -125,6 +174,54 @@ def serialize_model(instance: Any) -> dict[str, Any] | None:
     return data
 
 
+@event.listens_for(AuditableMixin, "before_update", propagate=True)
+def auditable_before_update(mapper, connection, target):
+    """Capture previous state for UPDATE auditing."""
+    before_state = serialize_model(target) or {}
+    state = inspect(target)
+
+    for attr in state.mapper.column_attrs:
+        history = state.attrs[attr.key].history
+        if history.has_changes():
+            if history.deleted:
+                before_state[attr.key] = _serialize_value(history.deleted[0])
+            elif history.added and not history.deleted:
+                before_state[attr.key] = None
+
+    setattr(target, _AUDIT_BEFORE_STATE_ATTR, before_state)
+
+
+@event.listens_for(AuditableMixin, "before_delete", propagate=True)
+def auditable_before_delete(mapper, connection, target):
+    """Capture previous state for DELETE auditing."""
+    setattr(target, _AUDIT_BEFORE_STATE_ATTR, serialize_model(target))
+
+
+@event.listens_for(AuditableMixin, "after_insert", propagate=True)
+def auditable_after_insert(mapper, connection, target):
+    """Create INSERT audit record."""
+    _insert_audit_row(connection, target, AuditAction.INSERT, before=None, after=serialize_model(target))
+
+
+@event.listens_for(AuditableMixin, "after_update", propagate=True)
+def auditable_after_update(mapper, connection, target):
+    """Create UPDATE audit record."""
+    before_state = getattr(target, _AUDIT_BEFORE_STATE_ATTR, None)
+    after_state = serialize_model(target)
+    _insert_audit_row(connection, target, AuditAction.UPDATE, before=before_state, after=after_state)
+    if hasattr(target, _AUDIT_BEFORE_STATE_ATTR):
+        delattr(target, _AUDIT_BEFORE_STATE_ATTR)
+
+
+@event.listens_for(AuditableMixin, "after_delete", propagate=True)
+def auditable_after_delete(mapper, connection, target):
+    """Create DELETE audit record."""
+    before_state = getattr(target, _AUDIT_BEFORE_STATE_ATTR, None)
+    _insert_audit_row(connection, target, AuditAction.DELETE, before=before_state, after=None)
+    if hasattr(target, _AUDIT_BEFORE_STATE_ATTR):
+        delattr(target, _AUDIT_BEFORE_STATE_ATTR)
+
+
 async def create_audit_log(
     session: AsyncSession,
     entity_type: str,
@@ -185,23 +282,8 @@ def setup_audit_listeners(model_class: type[Base]) -> None:
 
     """
 
-    @event.listens_for(model_class, "after_insert")
-    def receive_after_insert(mapper, connection, target):
-        """Event listener for after insert."""
-        # This runs in sync context, we'll handle audit in the service layer
-        pass
-
-    @event.listens_for(model_class, "after_update")
-    def receive_after_update(mapper, connection, target):
-        """Event listener for after update."""
-        # This runs in sync context, we'll handle audit in the service layer
-        pass
-
-    @event.listens_for(model_class, "after_delete")
-    def receive_after_delete(mapper, connection, target):
-        """Event listener for after delete."""
-        # This runs in sync context, we'll handle audit in the service layer
-        pass
+    # Backward-compatible no-op. AuditableMixin listeners are now automatic.
+    _ = model_class
 
 
 # Helper functions to set current user in context
