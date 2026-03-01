@@ -2,6 +2,8 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi.openapi.utils import get_openapi
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
@@ -53,6 +55,61 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
+
+
+def custom_openapi():
+    """Customize OpenAPI schema with global tenant header support in Swagger UI."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    components = openapi_schema.setdefault("components", {})
+    security_schemes = components.setdefault("securitySchemes", {})
+    security_schemes["TenantHeader"] = {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Tenant-ID",
+        "description": "Tenant UUID used by tenant-protected endpoints.",
+    }
+
+    # Apply tenant header scheme only to routes protected by require_tenant dependency.
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+
+        has_tenant_dependency = any(dependency.call == require_tenant for dependency in route.dependant.dependencies)
+        if not has_tenant_dependency:
+            continue
+
+        path_item = openapi_schema.get("paths", {}).get(route.path)
+        if not path_item:
+            continue
+
+        for method in route.methods:
+            method_lower = method.lower()
+            operation = path_item.get(method_lower)
+            if not operation:
+                continue
+
+            existing_security = operation.get("security")
+            if existing_security:
+                operation["security"] = [
+                    {**requirement, "TenantHeader": []} for requirement in existing_security
+                ]
+            else:
+                operation["security"] = [{"TenantHeader": []}]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 # Add rate limiting middleware
 app.state.limiter = limiter

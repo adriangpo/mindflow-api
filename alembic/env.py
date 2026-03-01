@@ -1,17 +1,31 @@
 """Alembic environment configuration for async SQLAlchemy."""
 
 import asyncio
+import sys
 from logging.config import fileConfig
+from pathlib import Path
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
+
+# Ensure project root is importable when running Alembic as a CLI tool.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from src.config.settings import settings
 from src.database.base import Base
+from src.features.auth import models as auth_models
+from src.features.schedule_config import models as schedule_models
+from src.features.user import models as user_models
+from src.shared.audit import audit as audit_models
 
-# Import all models so they are registered with Base.metadata
+# Import all models so they are registered with Base.metadata.
+# These references keep imports explicit and prevent optimization removal.
+_ = (auth_models, schedule_models, user_models, audit_models)
 
 # Alembic Config object
 config = context.config
@@ -20,7 +34,7 @@ config = context.config
 config.set_main_option("sqlalchemy.url", settings.postgres_url)
 
 # Interpret the config file for Python logging
-if config.config_file_name is not None:
+if config.config_file_name is not None and Path(config.config_file_name).exists():
     fileConfig(config.config_file_name)
 
 # Target metadata for autogenerate support
