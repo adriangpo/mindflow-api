@@ -1,6 +1,7 @@
 """User schemas (DTOs)."""
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -81,6 +82,12 @@ class AssignPermissionsRequest(BaseModel):
     permissions: list[str] = Field(..., min_length=1)
 
 
+class AssignTenantsRequest(BaseModel):
+    """Assign tenant access to a user (admin only)."""
+
+    tenant_ids: list[UUID]
+
+
 # Response schemas
 class UserResponse(BaseModel):
     """User response."""
@@ -91,6 +98,7 @@ class UserResponse(BaseModel):
     full_name: str
     roles: list[UserRole]
     permissions: list[str]
+    tenant_ids: list[UUID]
     status: UserStatus
     created_at: datetime
     last_login_at: datetime | None = None

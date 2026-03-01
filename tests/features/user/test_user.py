@@ -2,6 +2,8 @@
 Covers: UserService, User CRUD, role/permission assignment, privilege checks.
 """
 
+from uuid import uuid7
+
 import pytest
 from fastapi import status
 
@@ -135,6 +137,27 @@ class TestUserServicePermissions:
 
         assert "write:assets" in updated.permissions
         assert "read:assets" not in updated.permissions
+
+
+class TestUserServiceTenantAccess:
+    """Tests for UserService.assign_tenants()."""
+
+    async def test_assign_tenants_to_user(self, make_user):
+        """Assign tenant IDs to user."""
+        user = await make_user()
+        tenant_ids = [uuid7(), uuid7()]
+
+        updated = await UserService.assign_tenants(user, tenant_ids)
+
+        assert updated.tenant_ids == tenant_ids
+
+    async def test_assign_empty_tenants_list(self, make_user):
+        """Clear tenant access by assigning empty list."""
+        user = await make_user(tenant_ids=[uuid7(), uuid7()])
+
+        updated = await UserService.assign_tenants(user, [])
+
+        assert updated.tenant_ids == []
 
 
 class TestUserServiceUpdate:
@@ -571,6 +594,37 @@ class TestUserEndpointAssignPermissions:
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
+class TestUserEndpointAssignTenants:
+    """Tests for POST {api_prefix}/users/{id}/tenants (admin only)."""
+
+    async def test_assign_tenants_as_admin(self, admin_client, make_user):
+        """Admin can assign tenant IDs to user."""
+        client, admin_user = admin_client
+        user = await make_user()
+        tenant_id_1 = str(uuid7())
+        tenant_id_2 = str(uuid7())
+
+        response = await client.post(
+            f"{settings.api_prefix}/users/{user.id}/tenants",
+            json={"tenant_ids": [tenant_id_1, tenant_id_2]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tenant_ids"] == [tenant_id_1, tenant_id_2]
+
+    async def test_assign_tenants_non_admin_forbidden(self, auth_client, make_user):
+        """Non-admin cannot assign tenant IDs."""
+        client, user = auth_client
+        other_user = await make_user(username="other")
+
+        response = await client.post(
+            f"{settings.api_prefix}/users/{other_user.id}/tenants",
+            json={"tenant_ids": [str(uuid7())]},
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
 class TestUserEndpointDeleteUser:
     """Tests for DELETE {api_prefix}/users/{id} (admin only)"""
 
@@ -966,6 +1020,7 @@ class TestUserRegistrationWithLoggedInFlag:
         user = await UserService.register_user(session, data)
 
         assert user.is_logged_in is False
+        assert user.tenant_ids == []
 
     async def test_register_multiple_users_all_not_logged_in(self, session):
         """Multiple registered users should all have is_logged_in=False."""

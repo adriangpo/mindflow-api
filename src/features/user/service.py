@@ -2,6 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
+from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,6 +69,7 @@ class UserService:
             status=UserStatus.ACTIVE.value,  # Default status
             is_logged_in=False,  # Users start as not logged in
             permissions=[],  # Users start with no permissions
+            tenant_ids=[],  # Users start without tenant assignments
         )
 
         session.add(user)
@@ -107,6 +109,14 @@ class UserService:
         user.permissions = permissions
         user.updated_at = datetime.now(UTC)
         logger.info(f"Permissions assigned to user {user.username}: {permissions}")
+        return user
+
+    @staticmethod
+    async def assign_tenants(user: User, tenant_ids: list[UUID]) -> User:
+        """Assign tenant access to a user."""
+        user.tenant_ids = tenant_ids
+        user.updated_at = datetime.now(UTC)
+        logger.info(f"Tenant access assigned to user {user.username}: {tenant_ids}")
         return user
 
     @staticmethod

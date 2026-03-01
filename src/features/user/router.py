@@ -17,6 +17,7 @@ from .models import User, UserRole
 from .schemas import (
     AssignPermissionsRequest,
     AssignRolesRequest,
+    AssignTenantsRequest,
     PasswordChangeRequest,
     UserListResponse,
     UserRegisterRequest,
@@ -181,6 +182,25 @@ async def assign_permissions(
     user = await UserService.assign_permissions(user, data.permissions)
     await session.commit()
     logger.info(f"Permissions assigned to {user.username} by admin {current_user.username}: {data.permissions}")
+    return UserResponse.model_validate(user)
+
+
+@router.post("/{user_id}/tenants", response_model=UserResponse, dependencies=[Depends(require_role(UserRole.ADMIN))])
+async def assign_tenants(
+    user_id: int,
+    data: AssignTenantsRequest,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Assign tenant access to a user (admin only)."""
+    user = await UserService.get_user(session, user_id)
+
+    if not user:
+        raise UserNotFound()
+
+    user = await UserService.assign_tenants(user, data.tenant_ids)
+    await session.commit()
+    logger.info(f"Tenant access assigned to {user.username} by admin {current_user.username}: {data.tenant_ids}")
     return UserResponse.model_validate(user)
 
 

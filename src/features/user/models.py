@@ -2,8 +2,10 @@
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
 
 from pwdlib import PasswordHash
+from sqlalchemy import UUID as SQLALCHEMY_UUID
 from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
@@ -77,6 +79,12 @@ class User(Base, TimestampMixin, AuditableMixin):
     )
     permissions: Mapped[list[str]] = mapped_column(
         ARRAY(String),
+        nullable=False,
+        default=[],
+        server_default="{}",
+    )
+    tenant_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(SQLALCHEMY_UUID(as_uuid=True)),
         nullable=False,
         default=[],
         server_default="{}",

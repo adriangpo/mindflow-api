@@ -235,6 +235,7 @@ async def make_user(session: AsyncSession, tenant_id: UUID):
         status=UserStatus.ACTIVE,
         is_logged_in=False,
         permissions=None,
+        tenant_ids=None,
         **kwargs,
     ) -> User:
         nonlocal counter
@@ -257,6 +258,7 @@ async def make_user(session: AsyncSession, tenant_id: UUID):
             status=status.value,
             is_logged_in=is_logged_in,
             permissions=permissions or [],
+            tenant_ids=tenant_ids or [],
             **kwargs,
         )
 

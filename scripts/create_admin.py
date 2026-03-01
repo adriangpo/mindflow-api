@@ -88,6 +88,7 @@ async def create_admin(email: str, username: str, full_name: str, password: str,
                 status=UserStatus.ACTIVE.value,
                 is_logged_in=False,
                 permissions=[],
+                tenant_ids=[],
             )
             session.add(user)
             await session.flush()

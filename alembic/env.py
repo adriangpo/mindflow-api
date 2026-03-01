@@ -19,13 +19,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config.settings import settings
 from src.database.base import Base
 from src.features.auth import models as auth_models
-from src.features.schedule_config import models as schedule_models
+from src.features.tenant import models as tenant_models
 from src.features.user import models as user_models
 from src.shared.audit import audit as audit_models
 
 # Import all models so they are registered with Base.metadata.
 # These references keep imports explicit and prevent optimization removal.
-_ = (auth_models, schedule_models, user_models, audit_models)
+_ = (auth_models, tenant_models, user_models, audit_models)
 
 # Alembic Config object
 config = context.config

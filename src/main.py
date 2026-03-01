@@ -15,6 +15,7 @@ from src.config.cors_config import CORSConfigurationError
 from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
+from src.features.tenant.router import router as tenant_router
 from src.features.user.router import router as user_router
 from src.shared.audit.audit_middleware import AuditContextMiddleware
 from src.shared.middlewares.docs_middleware import admin_docs_middleware
@@ -99,9 +100,7 @@ def custom_openapi():
 
             existing_security = operation.get("security")
             if existing_security:
-                operation["security"] = [
-                    {**requirement, "TenantHeader": []} for requirement in existing_security
-                ]
+                operation["security"] = [{**requirement, "TenantHeader": []} for requirement in existing_security]
             else:
                 operation["security"] = [{"TenantHeader": []}]
 
@@ -148,6 +147,7 @@ app.add_middleware(AuditContextMiddleware)
 public_routers: list[APIRouter] = [
     auth_router,
     user_router,
+    tenant_router,
 ]
 
 # Tenant-protected routers - require X-Tenant-ID header

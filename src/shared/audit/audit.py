@@ -76,6 +76,14 @@ _AUDIT_BEFORE_STATE_ATTR = "__audit_before_state__"
 
 def _serialize_value(value: Any) -> Any:
     """Serialize scalar values for JSON storage in audit records."""
+    if isinstance(value, list):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, tuple):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, set):
+        return [_serialize_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _serialize_value(item) for key, item in value.items()}
     if isinstance(value, (datetime, date, time)):
         return value.isoformat()
     if isinstance(value, UUID):
