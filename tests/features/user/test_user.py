@@ -23,7 +23,7 @@ class TestUserServiceRegistration:
     """Tests for UserService.register_user()"""
 
     async def test_register_user_success(self, session):
-        """Successfully register a new user with default VIEWER role."""
+        """Successfully register a new user with default TENANT_OWNER role."""
         data = UserRegisterRequest(
             email="newuser@example.com",
             username="newuser",
@@ -36,7 +36,7 @@ class TestUserServiceRegistration:
         assert user.email == "newuser@example.com"
         assert user.username == "newuser"
         assert user.full_name == "New User"
-        assert UserRole.VIEWER in user.roles
+        assert UserRole.TENANT_OWNER in user.roles
         assert user.status == UserStatus.ACTIVE
         assert user.verify_password("SecurePass123!")
 
@@ -76,7 +76,7 @@ class TestUserServiceRoles:
 
     async def test_assign_single_role(self, make_user):
         """Assign a single role to user."""
-        user = await make_user(roles=[UserRole.VIEWER])
+        user = await make_user(roles=[UserRole.TENANT_OWNER])
 
         updated = await UserService.assign_roles(user, [UserRole.ADMIN])
 
@@ -85,22 +85,22 @@ class TestUserServiceRoles:
 
     async def test_assign_multiple_roles(self, make_user):
         """Assign multiple roles to user."""
-        user = await make_user(roles=[UserRole.VIEWER])
+        user = await make_user(roles=[UserRole.TENANT_OWNER])
 
-        updated = await UserService.assign_roles(user, [UserRole.ADMIN, UserRole.MANAGER])
+        updated = await UserService.assign_roles(user, [UserRole.ADMIN, UserRole.ASSISTANT])
 
         assert UserRole.ADMIN in updated.roles
-        assert UserRole.MANAGER in updated.roles
+        assert UserRole.ASSISTANT in updated.roles
         assert len(updated.roles) == 2
 
     async def test_assign_roles_replaces_previous(self, make_user):
         """Assigning roles replaces previous roles."""
-        user = await make_user(roles=[UserRole.VIEWER])
+        user = await make_user(roles=[UserRole.TENANT_OWNER])
 
-        updated = await UserService.assign_roles(user, [UserRole.MANAGER])
+        updated = await UserService.assign_roles(user, [UserRole.ASSISTANT])
 
-        assert UserRole.MANAGER in updated.roles
-        assert UserRole.VIEWER not in updated.roles
+        assert UserRole.ASSISTANT in updated.roles
+        assert UserRole.TENANT_OWNER not in updated.roles
 
 
 class TestUserServicePermissions:
@@ -189,6 +189,7 @@ class TestUserServicePassword:
         assert success is True
         # Verify password actually changed
         updated_user = await UserService.get_user(session, user.id)
+        assert updated_user is not None
         assert updated_user.verify_password("NewPass456!")
         assert not updated_user.verify_password("OldPass123!")
 
@@ -208,6 +209,8 @@ class TestUserServicePassword:
         await session.commit()
 
         updated_user = await UserService.get_user(session, user.id)
+        
+        assert updated_user is not None
         assert updated_user.updated_at > original_updated_at
 
 
@@ -522,7 +525,7 @@ class TestUserEndpointAssignRoles:
     async def test_assign_role_as_admin(self, admin_client, make_user):
         """Admin can assign roles to user."""
         client, admin_user = admin_client
-        user = await make_user(roles=[UserRole.VIEWER])
+        user = await make_user(roles=[UserRole.ASSISTANT])
 
         response = await client.post(f"{settings.api_prefix}/users/{user.id}/roles", json={"roles": ["admin"]})
 
@@ -618,12 +621,12 @@ class TestUserRolePermissions:
             username="test",
             full_name="Test",
             hashed_password="hash",
-            roles=[UserRole.ADMIN, UserRole.MANAGER],
+            roles=[UserRole.ADMIN, UserRole.ASSISTANT],
         )
 
         assert user.has_role(UserRole.ADMIN)
-        assert user.has_role(UserRole.MANAGER)
-        assert not user.has_role(UserRole.VIEWER)
+        assert user.has_role(UserRole.ASSISTANT)
+        assert not user.has_role(UserRole.TENANT_OWNER)
 
     def test_user_has_permission_directly(self):
         """Test has_permission when user has permission directly."""
@@ -661,7 +664,7 @@ class TestUserRolePermissions:
             username="test",
             full_name="Test",
             hashed_password="hash",
-            roles=[UserRole.VIEWER],
+            roles=[UserRole.ASSISTANT],
             permissions=[],
         )
 
@@ -761,7 +764,7 @@ class TestUserServiceEdgeCases:
 
     async def test_assign_empty_roles_list(self, make_user):
         """Can assign empty roles list to user."""
-        user = await make_user(roles=[UserRole.ADMIN, UserRole.MANAGER])
+        user = await make_user(roles=[UserRole.ADMIN, UserRole.ASSISTANT])
 
         updated = await UserService.assign_roles(user, [])
 
@@ -1011,7 +1014,7 @@ class TestUserRegistrationWithLoggedInFlag:
         assert user.username == "complete"
         assert user.full_name == "Complete User"
         assert user.status == UserStatus.ACTIVE
-        assert UserRole.VIEWER in user.roles
+        assert UserRole.TENANT_OWNER in user.roles
         assert user.is_logged_in is False
         assert user.verify_password("ComplexPass789!@#")
 
@@ -1066,6 +1069,8 @@ class TestUserIsLoggedInProperty:
 
         # Verify it persists
         retrieved = await UserService.get_user(session, user.id)
+        
+        assert retrieved is not None
         assert retrieved.is_logged_in is True
 
     async def test_set_user_is_logged_in_false_after_true(self, session, make_user):
@@ -1084,6 +1089,8 @@ class TestUserIsLoggedInProperty:
 
         # Verify it persists
         retrieved = await UserService.get_user(session, user.id)
+        
+        assert retrieved is not None
         assert retrieved.is_logged_in is False
 
     async def test_multiple_users_independent_is_logged_in_states(self, session, make_user):
@@ -1103,6 +1110,10 @@ class TestUserIsLoggedInProperty:
         retrieved2 = await UserService.get_user(session, user2.id)
         retrieved3 = await UserService.get_user(session, user3.id)
 
+        assert retrieved1 is not None
+        assert retrieved2 is not None
+        assert retrieved3 is not None
+        
         assert retrieved1.is_logged_in is True
         assert retrieved2.is_logged_in is False
         assert retrieved3.is_logged_in is True
@@ -1122,12 +1133,14 @@ class TestUserIsLoggedInProperty:
 
         # Verify in DB
         retrieved = await UserService.get_user(session, user.id)
+        
+        assert retrieved is not None
         assert retrieved.full_name == "Updated Name"
         assert retrieved.is_logged_in is True
 
     async def test_is_logged_in_with_role_assignment(self, session, make_user):
         """Assigning roles should not affect is_logged_in state."""
-        user = await make_user(roles=[UserRole.VIEWER])
+        user = await make_user(roles=[UserRole.TENANT_OWNER])
 
         user.is_logged_in = True
         await session.commit()
@@ -1164,6 +1177,8 @@ class TestUserIsLoggedInProperty:
 
         # Retrieve and verify
         retrieved = await UserService.get_user(session, user.id)
+        
+        assert retrieved is not None
         assert retrieved.is_logged_in is True
 
     async def test_is_logged_in_with_inactive_user(self, session, make_user):
@@ -1338,18 +1353,18 @@ class TestUserRegistrationEdgeCases:
         # Original user still not logged in
         assert user1.is_logged_in is False
 
-    async def test_register_user_default_role_is_viewer(self, session):
-        """Newly registered user should have VIEWER role by default."""
+    async def test_register_user_default_role_is_tenant_owner(self, session):
+        """Newly registered user should have TENANT_OWNER role by default."""
         data = UserRegisterRequest(
-            email="viewer@example.com",
-            username="viewer",
-            full_name="Viewer User",
+            email="tenant_owner@example.com",
+            username="tenant_owner",
+            full_name="Tenant Owner User",
             password="SecurePass123!",
             confirm_password="SecurePass123!",
         )
         user = await UserService.register_user(session, data)
 
-        assert UserRole.VIEWER in user.roles
+        assert UserRole.TENANT_OWNER in user.roles
         assert len(user.roles) == 1
         assert user.is_logged_in is False
 

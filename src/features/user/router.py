@@ -73,8 +73,8 @@ async def register_user_admin(
 ):
     """Register a new user (admin only).
 
-    Creates a new user account with VIEWER role by default.
-    Admin must use the `/users/{id}/roles` endpoint to assign higher roles.
+    Creates a new user account with TENANT_OWNER role by default.
+    Admin can use the `/users/{id}/roles` endpoint to assign ASSISTANT role or change roles as needed.
     """
     user = await UserService.register_user(session, data)
     await session.commit()

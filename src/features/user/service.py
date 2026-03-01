@@ -26,8 +26,8 @@ class UserService:
     async def register_user(session: AsyncSession, data: UserRegisterRequest) -> User:
         """Register a new user.
 
-        All new users start with VIEWER role by default.
-        Roles must be assigned separately via assign_roles endpoint.
+        All new users start with TENANT_OWNER role by default.
+        Admins can assign ASSISTANT role via assign_roles endpoint.
 
         Args:
             session: Database session
@@ -58,13 +58,13 @@ class UserService:
         # Hash password (salt handled automatically by pwdlib using Argon2)
         hashed_password = User.hash_password(data.password)
 
-        # Create user with default VIEWER role, is_logged_in=False, and empty permissions
+        # Create user with default TENANT_OWNER role, is_logged_in=False, and empty permissions
         user = User(
             email=data.email,
             username=data.username,
             full_name=data.full_name,
             hashed_password=hashed_password,
-            roles=[UserRole.VIEWER.value],  # Default role
+            roles=[UserRole.TENANT_OWNER.value],  # Default role - user is autonomous professional
             status=UserStatus.ACTIVE.value,  # Default status
             is_logged_in=False,  # Users start as not logged in
             permissions=[],  # Users start with no permissions

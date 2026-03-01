@@ -94,7 +94,7 @@ def require_role(*required_roles: UserRole):
         Depends(require_role(UserRole.ADMIN))
 
         # For multiple roles (OR logic - user needs ANY of these)
-        Depends(require_role(UserRole.ADMIN, UserRole.MANAGER))
+        Depends(require_role(UserRole.ADMIN, UserRole.TENANT_OWNER))
     """
 
     async def role_checker(current_user: User = Depends(get_current_user)) -> User:

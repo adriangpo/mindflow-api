@@ -12,11 +12,28 @@ from src.database.base import Base, TimestampMixin
 
 
 class UserRole(StrEnum):
-    """User roles for RBAC."""
+    """User roles for RBAC.
+
+    ADMIN: Platform-level administrator (cross-tenant).
+           Can manage accounts, plans, and support operations.
+           Does NOT participate in clinical operations.
+
+    TENANT_OWNER: The autonomous professional (doctor/psychologist).
+                  Owner of the tenant.
+                  Full access to: patients, medical records, agenda, scheduling,
+                  financial management, notifications, and assistants.
+                  ONLY role allowed to access medical records.
+
+    ASSISTANT: Secretary role.
+               Can: schedule appointments, update status, manage financial entries,
+                    send notifications.
+               Cannot: access medical records, export records, modify configuration,
+                      delete patients.
+    """
 
     ADMIN = "admin"
-    MANAGER = "manager"
-    VIEWER = "viewer"
+    TENANT_OWNER = "tenant_owner"
+    ASSISTANT = "assistant"
 
 
 class UserStatus(StrEnum):
@@ -54,8 +71,8 @@ class User(Base, TimestampMixin):
     roles: Mapped[list[str]] = mapped_column(
         ARRAY(String),
         nullable=False,
-        default=[UserRole.VIEWER.value],
-        server_default=f"{{{UserRole.VIEWER.value}}}",
+        default=[UserRole.TENANT_OWNER.value],
+        server_default=f"{{{UserRole.TENANT_OWNER.value}}}",
     )
     permissions: Mapped[list[str]] = mapped_column(
         ARRAY(String),

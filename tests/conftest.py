@@ -252,7 +252,7 @@ async def make_user(session: AsyncSession, tenant_id: UUID):
             username=username,
             full_name=full_name,
             hashed_password=hashed_password,
-            roles=[role.value for role in (roles or [UserRole.VIEWER])],
+            roles=[role.value for role in (roles or [UserRole.TENANT_OWNER])],
             status=status.value,
             is_logged_in=is_logged_in,
             permissions=permissions or [],

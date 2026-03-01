@@ -64,7 +64,13 @@ class PasswordChangeRequest(BaseModel):
 
 
 class AssignRolesRequest(BaseModel):
-    """Assign roles to a user (admin only)."""
+    """Assign roles to a user (admin only).
+
+    Valid roles:
+    - ADMIN: Platform-level administrator (manages accounts, plans, support)
+    - TENANT_OWNER: Autonomous professional (doctor/psychologist) with full access to tenant
+    - ASSISTANT: Secretary with access to scheduling, financial, and notifications only
+    """
 
     roles: list[UserRole] = Field(..., min_length=1)
 

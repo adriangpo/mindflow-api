@@ -82,6 +82,7 @@ class TestAuthenticateUser:
     async def test_updates_last_login_at_on_success(self, session, make_user):
         await make_user(email="lastlogin@example.com", password="Pass123!")
         user = await AuthService.authenticate_user(session, "lastlogin@example.com", "Pass123!")
+        assert user is not None
         assert user.last_login_at is not None
 
     async def test_returns_none_for_locked_account(self, session, make_user):
@@ -564,7 +565,7 @@ class TestUserModel:
             username="x",
             full_name="X",
             hashed_password="h",
-            roles=[UserRole.VIEWER],
+            roles=[UserRole.ASSISTANT],
         )
         assert user.has_role(UserRole.ADMIN) is False
 

@@ -96,9 +96,9 @@ src/
 
 ### User Roles
 
-- **ADMIN**: Full system access, can manage users
-- **MANAGER**: Can manage inventory operations
-- **VIEWER**: Basic read-only access
+- **ADMIN**: Platform-level administrator (cross-tenant). Can manage accounts, enforce read-only mode, manage plans, and perform support operations. Does NOT participate in clinical operations.
+- **TENANT_OWNER**: The autonomous professional. Owner of the tenant. Has full access to: patients, medical records, agenda, scheduling, financial management, notifications, and assistants. ONLY role allowed to access medical records.
+- **ASSISTANT**: Secretary role. Can: schedule appointments, update appointment status, manage financial entries, send notifications. Cannot: access medical records, export records, modify configuration, delete patients.
 
 ### API Endpoints
 
