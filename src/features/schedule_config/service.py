@@ -17,16 +17,24 @@ class ScheduleConfigurationService:
     """Service for schedule configuration operations."""
 
     @staticmethod
+    def _require_tenant_id(session: AsyncSession):
+        """Return tenant_id from session context or raise if missing."""
+        tenant_id = session.info.get("tenant_id")
+        if tenant_id is None:
+            raise RuntimeError("Tenant context is required for schedule configuration operations")
+        return tenant_id
+
+    @staticmethod
     async def create_configuration(
         session: AsyncSession,
         user_id: int,
         data: ScheduleConfigurationCreateRequest,
     ) -> ScheduleConfiguration:
         """Create a new schedule configuration."""
-        tenant_id = session.info.get("tenant_id")
+        tenant_id = ScheduleConfigurationService._require_tenant_id(session)
 
-        # Business decision: one configuration per user.
-        existing = await ScheduleConfigurationService.get_configuration_by_user_id(session, user_id)
+        # Business decision: one configuration per tenant.
+        existing = await ScheduleConfigurationService.get_configuration_by_tenant(session)
         if existing:
             raise ScheduleConfigurationAlreadyExists()
 
@@ -45,14 +53,19 @@ class ScheduleConfigurationService:
     @staticmethod
     async def get_configuration(session: AsyncSession, configuration_id: int) -> ScheduleConfiguration | None:
         """Get schedule configuration by id."""
-        stmt = select(ScheduleConfiguration).where(ScheduleConfiguration.id == configuration_id)
+        tenant_id = ScheduleConfigurationService._require_tenant_id(session)
+        stmt = select(ScheduleConfiguration).where(
+            ScheduleConfiguration.id == configuration_id,
+            ScheduleConfiguration.tenant_id == tenant_id,
+        )
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
     @staticmethod
-    async def get_configuration_by_user_id(session: AsyncSession, user_id: int) -> ScheduleConfiguration | None:
-        """Get schedule configuration by user id."""
-        stmt = select(ScheduleConfiguration).where(ScheduleConfiguration.user_id == user_id)
+    async def get_configuration_by_tenant(session: AsyncSession) -> ScheduleConfiguration | None:
+        """Get schedule configuration for current tenant."""
+        tenant_id = ScheduleConfigurationService._require_tenant_id(session)
+        stmt = select(ScheduleConfiguration).where(ScheduleConfiguration.tenant_id == tenant_id)
         result = await session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -60,15 +73,13 @@ class ScheduleConfigurationService:
     async def list_configurations(
         session: AsyncSession,
         pagination: PaginationParams,
-        user_id: int | None = None,
     ) -> tuple[list[ScheduleConfiguration], int]:
-        """List schedule configurations with optional filtering by user_id."""
-        count_stmt = select(func.count()).select_from(ScheduleConfiguration)
-        stmt = select(ScheduleConfiguration)
-
-        if user_id is not None:
-            count_stmt = count_stmt.where(ScheduleConfiguration.user_id == user_id)
-            stmt = stmt.where(ScheduleConfiguration.user_id == user_id)
+        """List schedule configurations for the current tenant."""
+        tenant_id = ScheduleConfigurationService._require_tenant_id(session)
+        count_stmt = (
+            select(func.count()).select_from(ScheduleConfiguration).where(ScheduleConfiguration.tenant_id == tenant_id)
+        )
+        stmt = select(ScheduleConfiguration).where(ScheduleConfiguration.tenant_id == tenant_id)
 
         total_result = await session.execute(count_stmt)
         total = total_result.scalar_one()

@@ -22,17 +22,10 @@ class ScheduleConfigurationNotFound(ScheduleConfigurationException):
 
 
 class ScheduleConfigurationAlreadyExists(ScheduleConfigurationException):
-    """Raised when user already has a schedule configuration."""
+    """Raised when tenant already has a schedule configuration."""
 
     def __init__(self):
         super().__init__(
-            detail="Schedule configuration already exists for this user",
+            detail="Schedule configuration already exists for this tenant",
             status_code=status.HTTP_409_CONFLICT,
         )
-
-
-class ScheduleConfigurationForbidden(ScheduleConfigurationException):
-    """Raised when user has no permission to manage a schedule configuration."""
-
-    def __init__(self):
-        super().__init__(detail="You do not have permission for this schedule configuration", status_code=403)

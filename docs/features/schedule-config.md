@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/schedule_config` manages tenant-scoped, user-owned schedule configuration records.
+`src/features/schedule_config` manages tenant-scoped schedule configuration records shared by all users in the tenant.
 
 ```mermaid
 sequenceDiagram
@@ -25,14 +25,14 @@ sequenceDiagram
 - `models.py`: `ScheduleConfiguration` (`TenantMixin`, `TimestampMixin`, `AuditableMixin`).
 - `schemas.py`: weekday/time-window DTOs with validators.
 - `service.py`: create/get/list/update/delete operations.
-- `router.py`: tenant-scoped endpoints with ownership checks.
+- `router.py`: tenant-scoped endpoints shared by tenant users.
 - `exceptions.py`: schedule config exceptions.
 
 ## Core Rules
 
-- One configuration per user per tenant (`uq_schedule_configuration_tenant_user`).
+- One configuration per tenant (`uq_schedule_configuration_tenant`).
 - Tenant scope comes from `session.info["tenant_id"]` set by tenant DB dependency.
-- User can only access their own configurations (`configuration.user_id == current_user.id`).
+- Any authenticated tenant user (including assistants) can access the tenant configuration.
 - Update flow re-validates merged state using `ScheduleConfigurationCreateRequest`.
 
 ## Endpoints
@@ -50,6 +50,6 @@ sequenceDiagram
 
 ## Test Coverage
 
-- one-config-per-user rule
-- owner-only access and forbidden checks
+- one-config-per-tenant rule
+- shared tenant access checks
 - pagination and schema validation behavior

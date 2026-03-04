@@ -11,7 +11,6 @@ from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
-    ScheduleConfigurationForbidden,
     ScheduleConfigurationNotFound,
 )
 from .schemas import (
@@ -31,7 +30,7 @@ async def create_schedule_configuration(
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Create the current user's schedule configuration in the current tenant."""
+    """Create the tenant schedule configuration."""
     configuration = await ScheduleConfigurationService.create_configuration(session, current_user.id, data)
     await session.commit()
     await session.refresh(configuration)
@@ -41,14 +40,13 @@ async def create_schedule_configuration(
 @router.get("", response_model=ScheduleConfigurationListResponse)
 async def list_schedule_configurations(
     pagination: PaginationParams = Depends(),
-    current_user: User = Depends(get_current_active_user),
+    _: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """List only the current user's schedule configurations in the tenant."""
+    """List schedule configurations in the tenant."""
     items, total = await ScheduleConfigurationService.list_configurations(
         session=session,
         pagination=pagination,
-        user_id=current_user.id,
     )
     return ScheduleConfigurationListResponse(
         configurations=[ScheduleConfigurationResponse.model_validate(item) for item in items],
@@ -61,16 +59,13 @@ async def list_schedule_configurations(
 @router.get("/{configuration_id}", response_model=ScheduleConfigurationResponse)
 async def get_schedule_configuration(
     configuration_id: int,
-    current_user: User = Depends(get_current_active_user),
+    _: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get schedule configuration by id."""
     configuration = await ScheduleConfigurationService.get_configuration(session, configuration_id)
     if configuration is None:
         raise ScheduleConfigurationNotFound()
-
-    if configuration.user_id != current_user.id:
-        raise ScheduleConfigurationForbidden()
 
     return ScheduleConfigurationResponse.model_validate(configuration)
 
@@ -79,16 +74,13 @@ async def get_schedule_configuration(
 async def update_schedule_configuration(
     configuration_id: int,
     data: ScheduleConfigurationUpdateRequest,
-    current_user: User = Depends(get_current_active_user),
+    _: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update schedule configuration by id."""
     configuration = await ScheduleConfigurationService.get_configuration(session, configuration_id)
     if configuration is None:
         raise ScheduleConfigurationNotFound()
-
-    if configuration.user_id != current_user.id:
-        raise ScheduleConfigurationForbidden()
 
     # Re-validate merged state using creation schema to centralize business validation in schemas.
     try:
@@ -125,16 +117,13 @@ async def update_schedule_configuration(
 @router.delete("/{configuration_id}")
 async def delete_schedule_configuration(
     configuration_id: int,
-    current_user: User = Depends(get_current_active_user),
+    _: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Delete schedule configuration by id."""
     configuration = await ScheduleConfigurationService.get_configuration(session, configuration_id)
     if configuration is None:
         raise ScheduleConfigurationNotFound()
-
-    if configuration.user_id != current_user.id:
-        raise ScheduleConfigurationForbidden()
 
     await ScheduleConfigurationService.delete_configuration(session, configuration_id)
     await session.commit()

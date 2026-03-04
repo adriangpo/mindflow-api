@@ -58,6 +58,8 @@ Admin-only:
 
 Authenticated + tenant header required (`X-Tenant-ID`):
 
+- Scope: tenant-wide shared configuration (single config per tenant; assistants and tenant owners use the same record).
+
 - `POST /`
 - `GET /`
 - `GET /{configuration_id}`

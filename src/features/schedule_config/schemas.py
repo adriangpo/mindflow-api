@@ -57,6 +57,7 @@ class ScheduleConfigurationResponse(BaseModel):
 
     id: int
     user_id: int
+    # user_id is the creator/owner reference; configuration semantics are tenant-wide.
     working_days: list[WeekDay]
     start_time: time
     end_time: time

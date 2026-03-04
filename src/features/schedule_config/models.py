@@ -11,10 +11,10 @@ from src.shared.audit.audit import AuditableMixin
 
 
 class ScheduleConfiguration(Base, TenantMixin, TimestampMixin, AuditableMixin):
-    """User schedule configuration model."""
+    """Tenant-wide schedule configuration model."""
 
     __tablename__ = "schedule_configurations"
-    __table_args__ = (UniqueConstraint("tenant_id", "user_id", name="uq_schedule_configuration_tenant_user"),)
+    __table_args__ = (UniqueConstraint("tenant_id", name="uq_schedule_configuration_tenant"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(

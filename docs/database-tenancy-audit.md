@@ -34,6 +34,7 @@ graph TD
 3. `0003_audit`
 4. `0004_tenants`
 5. `0005_schedule_config`
+6. `0006_schedule_config_tenant_unique`
 
 ## Migration Rules
 
@@ -41,7 +42,6 @@ graph TD
 - `alembic/env.py` must import all model modules used by metadata autogeneration.
 - Keep upgrade/downgrade paths coherent.
 
-## Known Gap
+## Alembic Coverage
 
-- `alembic/env.py` currently imports `auth`, `tenant`, `user`, and `audit` models, but not `schedule_config` models.
-- When touching migrations, update `alembic/env.py` to keep metadata coverage complete.
+- `alembic/env.py` should import all active model modules, including `schedule_config`, to keep autogenerate metadata complete.
