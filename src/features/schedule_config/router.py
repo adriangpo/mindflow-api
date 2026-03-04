@@ -3,14 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
-from src.features.auth.dependencies import get_current_active_user
+from src.features.auth.dependencies import require_tenant_membership
 from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
+    ScheduleConfigurationAlreadyExists,
     ScheduleConfigurationNotFound,
 )
 from .schemas import (
@@ -19,7 +21,7 @@ from .schemas import (
     ScheduleConfigurationResponse,
     ScheduleConfigurationUpdateRequest,
 )
-from .service import ScheduleConfigurationService
+from .service import ScheduleConfigurationService, is_tenant_unique_violation
 
 router = APIRouter(prefix="/schedule-configurations", tags=["Schedule Configuration"])
 
@@ -27,12 +29,18 @@ router = APIRouter(prefix="/schedule-configurations", tags=["Schedule Configurat
 @router.post("", response_model=ScheduleConfigurationResponse)
 async def create_schedule_configuration(
     data: ScheduleConfigurationCreateRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create the tenant schedule configuration."""
     configuration = await ScheduleConfigurationService.create_configuration(session, current_user.id, data)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        if is_tenant_unique_violation(exc):
+            raise ScheduleConfigurationAlreadyExists() from exc
+        raise
     await session.refresh(configuration)
     return ScheduleConfigurationResponse.model_validate(configuration)
 
@@ -40,7 +48,7 @@ async def create_schedule_configuration(
 @router.get("", response_model=ScheduleConfigurationListResponse)
 async def list_schedule_configurations(
     pagination: PaginationParams = Depends(),
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List schedule configurations in the tenant."""
@@ -59,7 +67,7 @@ async def list_schedule_configurations(
 @router.get("/{configuration_id}", response_model=ScheduleConfigurationResponse)
 async def get_schedule_configuration(
     configuration_id: int,
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get schedule configuration by id."""
@@ -74,7 +82,7 @@ async def get_schedule_configuration(
 async def update_schedule_configuration(
     configuration_id: int,
     data: ScheduleConfigurationUpdateRequest,
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update schedule configuration by id."""
@@ -117,7 +125,7 @@ async def update_schedule_configuration(
 @router.delete("/{configuration_id}")
 async def delete_schedule_configuration(
     configuration_id: int,
-    _: User = Depends(get_current_active_user),
+    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Delete schedule configuration by id."""

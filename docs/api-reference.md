@@ -59,6 +59,7 @@ Admin-only:
 Authenticated + tenant header required (`X-Tenant-ID`):
 
 - Scope: tenant-wide shared configuration (single config per tenant; assistants and tenant owners use the same record).
+- Authorization: user must be assigned to requested tenant (`tenant_id` present in `current_user.tenant_ids`).
 
 - `POST /`
 - `GET /`

@@ -1,5 +1,7 @@
 """Authentication dependencies for FastAPI."""
 
+from uuid import UUID
+
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
@@ -9,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.dependencies import get_db_session
 from src.features.user.models import User, UserRole
 from src.shared.audit.audit import set_current_user
+from src.shared.tenancy.dependencies import require_tenant
 
 from .exceptions import (
     InsufficientPermissionException,
+    InsufficientPermissionsException,
     InsufficientRoleException,
     InvalidTokenException,
     UserInactiveException,
@@ -146,3 +150,13 @@ async def get_optional_user(
         return await get_current_user(credentials)
     except InvalidTokenException, UserInactiveException, UserLockedException:
         return None
+
+
+async def require_tenant_membership(
+    tenant_id: UUID = Depends(require_tenant),
+    current_user: User = Depends(get_current_active_user),
+) -> User:
+    """Ensure authenticated user is assigned to requested tenant."""
+    if tenant_id not in current_user.tenant_ids:
+        raise InsufficientPermissionsException(detail="User is not assigned to requested tenant")
+    return current_user

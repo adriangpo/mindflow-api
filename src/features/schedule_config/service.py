@@ -1,6 +1,7 @@
 """Schedule configuration service layer."""
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.shared.pagination.pagination import PaginationParams
@@ -11,6 +12,18 @@ from .exceptions import (
 )
 from .models import ScheduleConfiguration
 from .schemas import ScheduleConfigurationCreateRequest, ScheduleConfigurationUpdateRequest
+
+TENANT_UNIQUE_CONSTRAINT = "uq_schedule_configuration_tenant"
+
+
+def is_tenant_unique_violation(exc: IntegrityError) -> bool:
+    """Check whether IntegrityError came from tenant unique constraint."""
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    if constraint_name == TENANT_UNIQUE_CONSTRAINT:
+        return True
+
+    return TENANT_UNIQUE_CONSTRAINT in str(getattr(exc, "orig", exc))
 
 
 class ScheduleConfigurationService:

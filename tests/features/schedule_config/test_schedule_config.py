@@ -1,10 +1,11 @@
 """Tests for schedule configuration feature."""
 
 from datetime import time
-from uuid import uuid7
+from uuid import UUID, uuid7
 
 import pytest
 from fastapi import status
+from sqlalchemy.exc import IntegrityError
 
 from src.features.auth.dependencies import get_current_active_user, get_current_user
 from src.features.schedule_config.exceptions import ScheduleConfigurationAlreadyExists
@@ -17,6 +18,13 @@ from src.features.schedule_config.service import ScheduleConfigurationService
 from src.features.user.models import UserRole
 from src.main import app
 from src.shared.pagination.pagination import PaginationParams
+
+
+def _tenant_id_from_client(client) -> UUID:
+    """Extract tenant UUID from test client default headers."""
+    tenant_id_header = client.headers.get("X-Tenant-ID")
+    assert tenant_id_header is not None
+    return UUID(tenant_id_header)
 
 
 class TestScheduleConfigurationService:
@@ -122,7 +130,8 @@ class TestScheduleConfigurationAPI:
     """API-layer tests for schedule configuration."""
 
     async def test_user_can_create_own_configuration(self, auth_client):
-        client, _ = auth_client
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
         payload = {
             "working_days": ["monday", "wednesday"],
             "start_time": "08:00",
@@ -139,11 +148,13 @@ class TestScheduleConfigurationAPI:
 
     async def test_assistant_can_get_tenant_configuration(self, auth_client, make_user, session):
         client, _ = auth_client
+        tenant_id = _tenant_id_from_client(client)
         owner = await make_user(email="owner_sc_get@example.com", username="owner_sc_get")
         assistant = await make_user(
             email="assistant_sc_get@example.com",
             username="assistant_sc_get",
             roles=[UserRole.ASSISTANT],
+            tenant_ids=[tenant_id],
         )
         config = await ScheduleConfigurationService.create_configuration(
             session,
@@ -174,6 +185,7 @@ class TestScheduleConfigurationAPI:
 
     async def test_list_returns_tenant_configuration(self, auth_client, session):
         client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
 
         await ScheduleConfigurationService.create_configuration(
             session,
@@ -196,7 +208,8 @@ class TestScheduleConfigurationAPI:
         assert len(body["configurations"]) == 1
 
     async def test_cannot_create_second_tenant_configuration(self, auth_client):
-        client, _ = auth_client
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
         payload = {
             "working_days": ["monday", "wednesday"],
             "start_time": "08:00",
@@ -220,8 +233,43 @@ class TestScheduleConfigurationAPI:
         )
         assert second_response.status_code == status.HTTP_409_CONFLICT
 
+    async def test_user_not_assigned_to_tenant_gets_403(self, auth_client):
+        client, user = auth_client
+        user.tenant_ids = []
+
+        response = await client.get("/api/schedule-configurations")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_create_maps_unique_integrity_error_to_409(self, auth_client, session, monkeypatch):
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
+
+        async def commit_with_unique_violation():
+            raise IntegrityError(
+                statement="INSERT INTO schedule_configurations ...",
+                params={},
+                orig=Exception("duplicate key value violates unique constraint uq_schedule_configuration_tenant"),
+            )
+
+        monkeypatch.setattr(session, "commit", commit_with_unique_violation)
+
+        response = await client.post(
+            "/api/schedule-configurations",
+            json={
+                "working_days": ["monday", "wednesday"],
+                "start_time": "08:00",
+                "end_time": "17:00",
+                "appointment_duration_minutes": 50,
+                "break_between_appointments_minutes": 10,
+            },
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+
     async def test_invalid_time_window_returns_422(self, auth_client):
-        client, _ = auth_client
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
         payload = {
             "working_days": ["monday"],
             "start_time": "18:00",
@@ -235,7 +283,8 @@ class TestScheduleConfigurationAPI:
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     async def test_update_with_invalid_merged_time_window_returns_422(self, auth_client):
-        client, _ = auth_client
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
 
         create_response = await client.post(
             "/api/schedule-configurations",

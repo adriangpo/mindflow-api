@@ -47,6 +47,7 @@ sequenceDiagram
 
 - Requires authentication.
 - Requires `X-Tenant-ID` header (router included with tenant dependency in `src/main.py`).
+- Requires authenticated user to be assigned to requested tenant (`current_user.tenant_ids` must contain `X-Tenant-ID`).
 
 ## Test Coverage
 
