@@ -58,6 +58,11 @@ _STATUS_TRANSITIONS: dict[AppointmentStatus, set[AppointmentStatus]] = {
     AppointmentStatus.COMPLETED: set(),
 }
 
+_TERMINAL_APPOINTMENT_STATUSES: set[AppointmentStatus] = {
+    AppointmentStatus.CANCELED,
+    AppointmentStatus.COMPLETED,
+}
+
 
 def _jsonable(value: Any) -> Any:
     """Serialize values for history JSON payloads."""
@@ -410,15 +415,15 @@ class ScheduleService:
             .select_from(ScheduleAppointment)
             .where(
                 ScheduleAppointment.tenant_id == tenant_id,
-                ScheduleAppointment.starts_at >= range_start,
                 ScheduleAppointment.starts_at < range_end,
+                ScheduleAppointment.ends_at > range_start,
             )
         )
 
         stmt = select(ScheduleAppointment).where(
             ScheduleAppointment.tenant_id == tenant_id,
-            ScheduleAppointment.starts_at >= range_start,
             ScheduleAppointment.starts_at < range_end,
+            ScheduleAppointment.ends_at > range_start,
         )
 
         if not include_deleted:
@@ -527,6 +532,13 @@ class ScheduleService:
 
         if time_changed and starts_at <= datetime.now(UTC):
             raise ScheduleAppointmentInPast()
+
+        current_status = AppointmentStatus(appointment.status)
+        if time_changed and current_status in _TERMINAL_APPOINTMENT_STATUSES:
+            raise ScheduleInvalidStatusTransition(
+                current_status.value,
+                AppointmentStatus.RESCHEDULED.value,
+            )
 
         if time_changed and await ScheduleService._has_slot_conflict(
             session,

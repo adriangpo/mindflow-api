@@ -10,7 +10,10 @@ from fastapi import status
 from src.features.auth.dependencies import get_current_active_user, get_current_user
 from src.features.patient.schemas import PatientCreateRequest
 from src.features.patient.service import PatientService
-from src.features.schedule.exceptions import ScheduleSlotUnavailable
+from src.features.schedule.exceptions import (
+    ScheduleInvalidStatusTransition,
+    ScheduleSlotUnavailable,
+)
 from src.features.schedule.schemas import (
     AppointmentModality,
     AppointmentStatus,
@@ -234,6 +237,74 @@ class TestScheduleService:
         assert len(slots) == 1
         assert slots[0].starts_at == datetime.combine(monday, time(9, 0), tzinfo=UTC)
 
+    async def test_terminal_status_cannot_be_rescheduled(self, session, make_user):
+        user = await make_user()
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+
+        starts_at = datetime.now(UTC) + timedelta(days=1)
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=patient.id,
+                starts_at=starts_at,
+                modality=AppointmentModality.IN_PERSON,
+            ),
+        )
+        await ScheduleService.update_appointment_status(
+            session,
+            user.id,
+            appointment,
+            ScheduleAppointmentStatusUpdateRequest(status=AppointmentStatus.CANCELED),
+        )
+
+        with pytest.raises(ScheduleInvalidStatusTransition):
+            await ScheduleService.update_appointment(
+                session,
+                user.id,
+                appointment,
+                ScheduleAppointmentUpdateRequest(starts_at=starts_at + timedelta(hours=2)),
+            )
+
+    async def test_list_day_includes_appointments_overlapping_view_window(self, session, make_user):
+        user = await make_user()
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+
+        reference_date = datetime.now(UTC).date() + timedelta(days=3)
+        starts_at = datetime.combine(reference_date - timedelta(days=1), time(23, 30), tzinfo=UTC)
+        ends_at = datetime.combine(reference_date, time(0, 30), tzinfo=UTC)
+
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=patient.id,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                modality=AppointmentModality.ONLINE,
+            ),
+        )
+        await session.commit()
+
+        items, total = await ScheduleService.list_appointments(
+            session=session,
+            pagination=PaginationParams(page=1, page_size=10),
+            view=ScheduleCalendarView.DAY,
+            reference_date=reference_date,
+            start_date=None,
+            end_date=None,
+            patient_id=None,
+            statuses=None,
+            payment_statuses=None,
+            include_deleted=False,
+        )
+
+        assert total == 1
+        assert len(items) == 1
+        assert items[0].id == appointment.id
+
 
 class TestScheduleAPI:
     """API-layer tests for schedule operations."""
@@ -442,6 +513,37 @@ class TestScheduleAPI:
         response = await client.get("/api/schedule/appointments?view=custom&start_date=2026-03-01")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    async def test_canceled_appointment_cannot_be_reopened_via_update(self, auth_client, session):
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
+
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+        await session.commit()
+
+        starts_at = (datetime.now(UTC) + timedelta(days=1)).replace(microsecond=0)
+        create_response = await client.post(
+            "/api/schedule/appointments",
+            json={
+                "patient_id": patient.id,
+                "starts_at": starts_at.isoformat(),
+                "modality": "in_person",
+            },
+        )
+        appointment_id = create_response.json()["id"]
+
+        cancel_response = await client.patch(
+            f"/api/schedule/appointments/{appointment_id}/status",
+            json={"status": "canceled"},
+        )
+        assert cancel_response.status_code == status.HTTP_200_OK
+
+        update_response = await client.put(
+            f"/api/schedule/appointments/{appointment_id}",
+            json={"starts_at": (starts_at + timedelta(hours=2)).isoformat()},
+        )
+        assert update_response.status_code == status.HTTP_409_CONFLICT
 
     async def test_service_list_custom_view_with_filters(self, session, make_user):
         user = await make_user()
