@@ -36,6 +36,7 @@ graph TD
 5. `0005_schedule_config`
 6. `0006_schedule_config_tenant_unique`
 7. `0007_patients`
+8. `0008_schedule_config_tenant_fk`
 
 ## Migration Rules
 

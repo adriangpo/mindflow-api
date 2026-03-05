@@ -260,6 +260,8 @@ class PatientService:
         patient.initial_record = data.initial_record
         patient.is_registered = True
         patient.is_active = True
+        patient.inactivated_at = None
+        patient.retention_expires_at = None
 
         await session.flush()
         return patient

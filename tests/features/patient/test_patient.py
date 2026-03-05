@@ -97,6 +97,40 @@ class TestPatientService:
         assert completed.is_registered is True
         assert completed.cpf == "39053344705"
 
+    async def test_complete_registration_reactivates_and_clears_retention_fields(self, session, make_user):
+        await make_user()
+
+        quick = await PatientService.create_quick_patient(
+            session,
+            PatientQuickCreateRequest(full_name="Paciente Reativado no Cadastro"),
+        )
+        await session.flush()
+        await PatientService.inactivate_patient(session, quick)
+        assert quick.is_active is False
+        assert quick.inactivated_at is not None
+        assert quick.retention_expires_at is not None
+
+        completed = await PatientService.complete_registration(
+            session,
+            quick,
+            PatientCompleteRegistrationRequest(
+                full_name="Paciente Reativado no Cadastro",
+                birth_date=date(2001, 1, 1),
+                cpf="39053344705",
+                cep="19911111",
+                phone_number="14977778888",
+                session_price=Decimal("210.00"),
+                session_frequency="weekly",
+                first_session_date=date(2026, 3, 18),
+            ),
+        )
+        await session.commit()
+
+        assert completed.is_registered is True
+        assert completed.is_active is True
+        assert completed.inactivated_at is None
+        assert completed.retention_expires_at is None
+
     async def test_duplicate_cpf_in_same_tenant_raises_conflict(self, session, make_user):
         await make_user()
         payload = PatientCreateRequest(
@@ -293,6 +327,41 @@ class TestPatientAPI:
         )
         assert complete_response.status_code == status.HTTP_200_OK
         assert complete_response.json()["is_registered"] is True
+
+    async def test_complete_registration_reactivates_and_clears_retention_fields(self, auth_client):
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
+
+        quick_response = await client.post(
+            "/api/patients/quick-register",
+            json={"full_name": "Paciente Inativo"},
+        )
+        assert quick_response.status_code == status.HTTP_200_OK
+        patient_id = quick_response.json()["id"]
+
+        inactivate_response = await client.delete(f"/api/patients/{patient_id}")
+        assert inactivate_response.status_code == status.HTTP_200_OK
+
+        inactive_state_response = await client.get(f"/api/patients/{patient_id}")
+        assert inactive_state_response.status_code == status.HTTP_200_OK
+        inactive_state = inactive_state_response.json()
+        assert inactive_state["is_active"] is False
+        assert inactive_state["inactivated_at"] is not None
+        assert inactive_state["retention_expires_at"] is not None
+
+        complete_response = await client.post(
+            f"/api/patients/{patient_id}/complete-registration",
+            json=_patient_payload(
+                cpf="16514569927",
+                full_name="Paciente Inativo",
+            ),
+        )
+        assert complete_response.status_code == status.HTTP_200_OK
+        body = complete_response.json()
+        assert body["is_registered"] is True
+        assert body["is_active"] is True
+        assert body["inactivated_at"] is None
+        assert body["retention_expires_at"] is None
 
     async def test_update_registered_minor_without_guardian_returns_422(self, auth_client):
         client, user = auth_client

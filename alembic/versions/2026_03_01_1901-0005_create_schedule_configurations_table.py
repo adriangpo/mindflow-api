@@ -46,7 +46,6 @@ def upgrade() -> None:
                 nullable=False,
                 server_default=sa.text("now()"),
             ),
-            sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
             sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("tenant_id", "user_id", name="uq_schedule_configuration_tenant_user"),
