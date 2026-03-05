@@ -1,7 +1,7 @@
 """create patients table
 
 Revision ID: 0007_patients
-Revises: 0006_schedule_config_tenant_unique
+Revises: 0006_sched_cfg_tenant_unique
 Create Date: 2026-03-04 21:00:00
 """
 
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "0007_patients"
-down_revision: str | None = "0006_schedule_config_tenant_unique"
+down_revision: str | None = "0006_sched_cfg_tenant_unique"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

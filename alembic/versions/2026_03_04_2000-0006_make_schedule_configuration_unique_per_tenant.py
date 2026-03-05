@@ -1,6 +1,6 @@
 """make schedule configuration unique per tenant
 
-Revision ID: 0006_schedule_config_tenant_unique
+Revision ID: 0006_sched_cfg_tenant_unique
 Revises: 0005_schedule_config
 Create Date: 2026-03-04 20:00:00
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "0006_schedule_config_tenant_unique"
+revision: str = "0006_sched_cfg_tenant_unique"
 down_revision: str | None = "0005_schedule_config"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
