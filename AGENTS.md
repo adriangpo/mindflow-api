@@ -38,6 +38,7 @@ Request flow:
 2. Decide scope:
    - Global table: inherit from `Base` (+ optional `TimestampMixin`, `AuditableMixin`)
    - Tenant table: include tenant strategy (`TenantMixin`) and use tenant DB dependency (`get_tenant_db_session`)
+   - Tenant table migrations must include explicit tenant isolation enforcement (RLS policy or project-approved equivalent)
 3. Put pure validation and data shape in `schemas.py`.
 4. Put all DB queries and business decisions in `service.py`.
 5. Keep `router.py` thin:
@@ -50,6 +51,7 @@ Request flow:
 7. Create migration in `alembic/versions/` for schema changes.
 8. Ensure Alembic model import coverage in `alembic/env.py` (so autogenerate/metadata sees models).
 9. Add tests under `tests/features/<feature>/` for service and API behavior.
+10. Add/update docs under `docs/` (feature docs + affected architecture/API/testing docs).
 
 ## Anti-Duplication Rules (Mandatory)
 Before adding any helper, dependency, validator, or util:
@@ -72,7 +74,10 @@ Before adding any helper, dependency, validator, or util:
 - Keep model names singular (`User`, `RefreshToken`), table names plural.
 - Add docstrings for modules/classes/functions that encode domain intent.
 - Use timezone-aware timestamps (`datetime.now(UTC)`) consistently.
-- For write operations, commit at router boundary (not deep utility layers).
+- For request/response endpoints using dependency-injected DB sessions, commit at router boundary (not deep utility layers).
+- Do not open independent `get_session()` context managers inside service methods used by routers.
+- Standalone scripts/CLI jobs that use `get_session()` may rely on context-manager commit behavior.
+- All docs live in `docs/`. Every `docs/*.md` file created or changed must include at least one Mermaid diagram.
 
 ## Consistency Checks Before Finishing
 1. Router is registered in `src/main.py` under the correct router list.
@@ -81,12 +86,15 @@ Before adding any helper, dependency, validator, or util:
 4. `alembic/env.py` imports the new feature models.
 5. Tests added or updated.
 6. No duplicated helper introduced where a shared one already exists.
+7. Relevant docs in `docs/` are updated and include Mermaid diagrams.
+8. Quality gates pass:
+   - `make lint`
+   - `make type-check`
+   - relevant `pytest` scope (or full suite when touching shared/core layers)
 
 ## Current Known Mismatch to Resolve When Touching Migrations
-- `alembic/env.py` imports `src.features.schedule_config`, but this feature package is not present in the current tree.
-- If you work on migrations/features, either:
-  - create/restore the missing feature package, or
-  - remove/fix stale import references so Alembic remains consistent.
+- `src/features/schedule_config` exists, but `alembic/env.py` does not import `src.features.schedule_config.models`.
+- If you work on migrations/features, add/fix model imports in `alembic/env.py` so Alembic autogenerate sees all metadata.
 
 ## Definition of Done for Agent Changes
 A change is complete only if:
@@ -94,3 +102,5 @@ A change is complete only if:
 2. No duplication was introduced.
 3. New/changed behavior is covered by tests.
 4. App startup + migration path remain coherent.
+5. Required docs under `docs/` are updated (with Mermaid diagrams).
+6. Quality checks pass (`make lint`, `make type-check`, and appropriate tests).

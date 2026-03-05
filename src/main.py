@@ -17,6 +17,7 @@ from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
 from src.features.tenant.router import router as tenant_router
+from src.features.schedule_config.router import router as schedule_configuration_router
 from src.features.user.router import router as user_router
 from src.shared.audit.audit_middleware import AuditContextMiddleware
 from src.shared.middlewares.docs_middleware import admin_docs_middleware
@@ -172,7 +173,10 @@ public_routers: list[APIRouter] = [
 ]
 
 # Tenant-protected routers - require X-Tenant-ID header
-tenant_routers: list[APIRouter] = []
+tenant_routers: list[APIRouter] = [
+    schedule_configuration_router,
+]
+
 
 # Register public routers (no tenant requirement)
 for router in public_routers:
