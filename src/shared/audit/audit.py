@@ -3,6 +3,7 @@
 import logging
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, time
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -90,6 +91,8 @@ def _serialize_value(value: Any) -> Any:
         return str(value)
     if isinstance(value, StrEnum):
         return value.value
+    if isinstance(value, Decimal):
+        return str(value)
     return value
 
 

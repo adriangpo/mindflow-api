@@ -67,6 +67,24 @@ Authenticated + tenant header required (`X-Tenant-ID`):
 - `PUT /{configuration_id}`
 - `DELETE /{configuration_id}`
 
+## Patients (`/api/patients`)
+
+Authenticated + tenant header required (`X-Tenant-ID`):
+
+- Scope: tenant-scoped patient registry with full and quick registration modes.
+- Authorization: user must be assigned to requested tenant and have `TENANT_OWNER` role.
+- Lifecycle: inactivation is soft-delete behavior with retention metadata.
+
+- `POST /`
+- `POST /quick-register`
+- `GET /`
+- `GET /{patient_id}`
+- `PUT /{patient_id}`
+- `POST /{patient_id}/complete-registration`
+- `PATCH /{patient_id}/profile-photo`
+- `DELETE /{patient_id}`
+- `POST /{patient_id}/reactivate`
+
 ## Documentation Endpoints
 
 - `/docs`

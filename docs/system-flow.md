@@ -41,10 +41,10 @@ sequenceDiagram
 ## Dependency and Session Rules
 
 - Use `get_db_session()` for global models (`User`, `Tenant`, `RefreshToken`, `AuditLog`).
-- Use `get_tenant_db_session()` for tenant-scoped models (`ScheduleConfiguration`).
+- Use `get_tenant_db_session()` for tenant-scoped models (`ScheduleConfiguration`, `Patient`).
 - `get_tenant_db_session()` validates `X-Tenant-ID` and runs `SET LOCAL app.current_tenant`.
 
 ## Router Grouping
 
 - Public router group: `auth`, `user`, `tenant`.
-- Tenant-protected router group: `schedule_config` (includes `Depends(require_tenant)` at include time).
+- Tenant-protected router group: `schedule_config`, `patient` (includes `Depends(require_tenant)` at include time).

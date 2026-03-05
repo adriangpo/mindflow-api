@@ -18,12 +18,14 @@ import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 
 from src.database.base import Base
 from src.database.client import set_tenant_context
 from src.database.dependencies import get_db_session, get_tenant_db_session
 from src.features.auth.dependencies import get_current_active_user, get_current_user
+from src.features.tenant.models import Tenant
 from src.features.user.models import User, UserRole, UserStatus
 from src.main import app
 
@@ -136,6 +138,25 @@ async def session(db_connection: AsyncConnection, tenant_id: UUID) -> AsyncGener
         yield async_session
     finally:
         await async_session.close()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def ensure_test_tenant_exists(session: AsyncSession, tenant_id: UUID):
+    """Ensure a tenant row exists for the test tenant_id.
+
+    Tenant-scoped tables now use a foreign key to ``tenants.id``.
+    """
+    existing_tenant = await session.scalar(select(Tenant.id).where(Tenant.id == tenant_id))
+    if existing_tenant is None:
+        tenant = Tenant(
+            id=tenant_id,
+            name=f"Tenant {tenant_id.hex[:12]}",
+            slug=f"tenant-{tenant_id.hex[:12]}",
+            is_active=True,
+        )
+        session.add(tenant)
+        await session.flush()
+    yield
 
 
 # Mock Database Initialization

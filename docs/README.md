@@ -23,6 +23,7 @@ graph TD
     A --> K[features/user.md]
     A --> L[features/tenant.md]
     A --> M[features/schedule-config.md]
+    A --> N[features/patient.md]
 ```
 
 ## Document Index
@@ -39,3 +40,4 @@ graph TD
 - [User Feature](./features/user.md)
 - [Tenant Feature](./features/tenant.md)
 - [Schedule Config Feature](./features/schedule-config.md)
+- [Patient Feature](./features/patient.md)

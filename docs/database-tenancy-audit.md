@@ -14,7 +14,7 @@ graph TD
 
 - `Base`: SQLAlchemy declarative base.
 - `TimestampMixin`: `created_at`, `updated_at` with timezone-aware UTC defaults.
-- `TenantMixin`: adds indexed `tenant_id` for tenant-scoped tables.
+- `TenantMixin`: adds indexed `tenant_id` as a foreign key to `tenants.id` for tenant-scoped tables.
 
 ## Session Dependencies
 
@@ -35,6 +35,7 @@ graph TD
 4. `0004_tenants`
 5. `0005_schedule_config`
 6. `0006_schedule_config_tenant_unique`
+7. `0007_patients`
 
 ## Migration Rules
 
@@ -44,4 +45,4 @@ graph TD
 
 ## Alembic Coverage
 
-- `alembic/env.py` should import all active model modules, including `schedule_config`, to keep autogenerate metadata complete.
+- `alembic/env.py` should import all active model modules, including `schedule_config` and `patient`, to keep autogenerate metadata complete.

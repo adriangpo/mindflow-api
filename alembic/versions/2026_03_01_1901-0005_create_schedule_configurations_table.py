@@ -46,6 +46,7 @@ def upgrade() -> None:
                 nullable=False,
                 server_default=sa.text("now()"),
             ),
+            sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], ondelete="CASCADE"),
             sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
             sa.PrimaryKeyConstraint("id"),
             sa.UniqueConstraint("tenant_id", "user_id", name="uq_schedule_configuration_tenant_user"),
@@ -53,7 +54,9 @@ def upgrade() -> None:
 
     index_names = {idx["name"] for idx in inspector.get_indexes("schedule_configurations")}
     if op.f("ix_schedule_configurations_user_id") not in index_names:
-        op.create_index(op.f("ix_schedule_configurations_user_id"), "schedule_configurations", ["user_id"], unique=False)
+        op.create_index(
+            op.f("ix_schedule_configurations_user_id"), "schedule_configurations", ["user_id"], unique=False
+        )
     if op.f("ix_schedule_configurations_tenant_id") not in index_names:
         op.create_index(
             op.f("ix_schedule_configurations_tenant_id"), "schedule_configurations", ["tenant_id"], unique=False
