@@ -47,4 +47,4 @@ sequenceDiagram
 ## Router Grouping
 
 - Public router group: `auth`, `user`, `tenant`.
-- Tenant-protected router group: `schedule_config`, `patient` (includes `Depends(require_tenant)` at include time).
+- Tenant-protected router group: `schedule_config`, `schedule`, `patient` (includes `Depends(require_tenant)` at include time).

@@ -67,6 +67,24 @@ Authenticated + tenant header required (`X-Tenant-ID`):
 - `PUT /{configuration_id}`
 - `DELETE /{configuration_id}`
 
+## Schedule (`/api/schedule`)
+
+Authenticated + tenant header required (`X-Tenant-ID`):
+
+- Scope: tenant-scoped consultation scheduling lifecycle and calendar views.
+- Authorization: user must be assigned to requested tenant and have `TENANT_OWNER` or `ASSISTANT` role.
+- Rules: requires tenant schedule configuration + active patient; blocks occupied slots and past datetimes.
+
+- `POST /appointments`
+- `GET /appointments`
+- `GET /appointments/{appointment_id}`
+- `PUT /appointments/{appointment_id}`
+- `PATCH /appointments/{appointment_id}/status`
+- `PATCH /appointments/{appointment_id}/payment-status`
+- `DELETE /appointments/{appointment_id}`
+- `GET /defaults`
+- `GET /availability`
+
 ## Patients (`/api/patients`)
 
 Authenticated + tenant header required (`X-Tenant-ID`):
