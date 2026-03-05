@@ -37,6 +37,7 @@ graph TD
 6. `0006_schedule_config_tenant_unique`
 7. `0007_patients`
 8. `0008_schedule_config_tenant_fk`
+9. `0009_schedule_appointments`
 
 ## Migration Rules
 
@@ -46,4 +47,4 @@ graph TD
 
 ## Alembic Coverage
 
-- `alembic/env.py` should import all active model modules, including `schedule_config` and `patient`, to keep autogenerate metadata complete.
+- `alembic/env.py` should import all active model modules, including `schedule_config`, `patient`, and `schedule`, to keep autogenerate metadata complete.
