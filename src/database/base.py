@@ -1,10 +1,10 @@
 """SQLAlchemy base models and utilities."""
 
 from datetime import UTC, datetime
-from uuid import UUID, uuid7
+from uuid import UUID
 
 from sqlalchemy import UUID as SQLALCHEMY_UUID
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime, ForeignKey, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -35,22 +35,21 @@ class TimestampMixin:
 
 
 class TenantMixin:
-    """Mixin for adding tenant_id to models for multi-tenancy with RLS.
+    """Mixin for adding tenant_id to tenant-scoped models.
 
-    All tenant-scoped models should inherit from this mixin in addition to Base and
-    any other mixins (like TimestampMixin). PostGres Row-Level Security (RLS) policies
-    will enforce that only rows belonging to the current tenant can be accessed.
+    The tenant reference points to ``tenants.id`` and is used together with
+    PostgreSQL Row-Level Security (RLS) session context.
 
     Example:
-        class User(Base, TenantMixin, TimestampMixin):
-            __tablename__ = "users"
+        class ScheduleConfiguration(Base, TenantMixin, TimestampMixin):
+            __tablename__ = "schedule_configurations"
             # ... other fields ...
 
     """
 
     tenant_id: Mapped[UUID] = mapped_column(
         SQLALCHEMY_UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        default=uuid7,
     )

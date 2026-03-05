@@ -31,6 +31,7 @@ sequenceDiagram
 ## Core Rules
 
 - One configuration per tenant (`uq_schedule_configuration_tenant`).
+- `tenant_id` references `tenants.id` (foreign key).
 - Tenant scope comes from `session.info["tenant_id"]` set by tenant DB dependency.
 - Any authenticated tenant user (including assistants) can access the tenant configuration.
 - Update flow re-validates merged state using `ScheduleConfigurationCreateRequest`.

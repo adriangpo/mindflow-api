@@ -20,6 +20,7 @@ flowchart TD
 - `tests/features/user`: user service and API behavior (including RBAC and edge cases).
 - `tests/features/tenant`: tenant service and admin APIs.
 - `tests/features/schedule_config`: tenant-scoped schedule configuration behavior.
+- `tests/features/patient`: patient registration, lifecycle, and tenant access behavior.
 - `tests/features/audit`: diffing, serialization, and audit log creation.
 - `tests/config`: CORS unit and integration coverage.
 - `tests/shared`: tenancy and validator tests.
