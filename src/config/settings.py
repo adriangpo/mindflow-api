@@ -2,7 +2,7 @@
 
 import logging
 
-from pydantic import field_validator
+from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.config.cors_config import CORSConfiguration, CORSConfigurationError
@@ -22,7 +22,12 @@ class Settings(BaseSettings):
     environment: str  # development, staging, production
 
     # PostgreSQL
-    postgres_url: str
+    postgres_user: str = "mindflow"
+    postgres_password: str = "mindflow"
+    postgres_db: str = "mindflow"
+    postgres_port: int = 5432
+    postgres_test_port: int = 5433
+    postgres_url: str = ""
     postgres_pool_size: int = 10
     postgres_max_overflow: int = 20
     postgres_pool_timeout: int = 30
@@ -31,6 +36,7 @@ class Settings(BaseSettings):
 
     # API
     api_prefix: str = "/api"
+    api_port: int = 8000
 
     # CORS Configuration (environment-aware)
     cors_allow_origins: str | None = None
@@ -80,6 +86,19 @@ class Settings(BaseSettings):
             return False
 
         raise ValueError(f"Invalid debug value: {v}")
+
+    @field_validator("postgres_url", mode="before")
+    @classmethod
+    def build_postgres_url(cls, v: str | None, info: ValidationInfo) -> str:
+        """Build async SQLAlchemy PostgreSQL URL from component env vars."""
+        if isinstance(v, str) and v.strip():
+            return v
+
+        user = str(info.data.get("postgres_user", "mindflow"))
+        password = str(info.data.get("postgres_password", "mindflow"))
+        db = str(info.data.get("postgres_db", "mindflow"))
+        port = int(info.data.get("postgres_port", 5432))
+        return f"postgresql+asyncpg://{user}:{password}@localhost:{port}/{db}"
 
     def get_cors_configuration(self) -> CORSConfiguration:
         """Get CORS configuration based on environment settings.
