@@ -33,8 +33,59 @@ from src.main import app
 test_env_path = Path(__file__).parent.parent / ".env.test"
 load_dotenv(test_env_path, override=True)
 
+
+def _resolve_test_db_url() -> str:
+    """Resolve the PostgreSQL URL used by tests.
+
+    Priority:
+    1. TEST_POSTGRES_URL / POSTGRES_TEST_URL (explicit test URL)
+    2. Component-based test vars (POSTGRES_TEST_*)
+    3. Component-based standard vars (POSTGRES_*) from .env.test
+    4. POSTGRES_URL (legacy fallback)
+    5. Safe default matching docker-compose postgres_test service
+    """
+    explicit_test_url = os.getenv("TEST_POSTGRES_URL") or os.getenv("POSTGRES_TEST_URL")
+    if explicit_test_url:
+        return explicit_test_url
+
+    test_host = os.getenv("POSTGRES_TEST_HOST")
+    test_port = os.getenv("POSTGRES_TEST_PORT")
+    test_user = os.getenv("POSTGRES_TEST_USER")
+    test_password = os.getenv("POSTGRES_TEST_PASSWORD")
+    test_db = os.getenv("POSTGRES_TEST_DB")
+
+    has_test_components = any([test_host, test_port, test_user, test_password, test_db])
+    if has_test_components:
+        return (
+            "postgresql+asyncpg://"
+            f"{test_user or 'mindflow_test'}:{test_password or 'mindflow_test'}@"
+            f"{test_host or 'localhost'}:{test_port or '5433'}/{test_db or 'mindflow_test'}"
+        )
+
+    standard_host = os.getenv("POSTGRES_HOST")
+    standard_port = os.getenv("POSTGRES_PORT")
+    standard_user = os.getenv("POSTGRES_USER")
+    standard_password = os.getenv("POSTGRES_PASSWORD")
+    standard_db = os.getenv("POSTGRES_DB")
+
+    has_standard_components = any(
+        [standard_host, standard_port, standard_user, standard_password, standard_db]
+    )
+    if has_standard_components:
+        return (
+            "postgresql+asyncpg://"
+            f"{standard_user or 'mindflow_test'}:{standard_password or 'mindflow_test'}@"
+            f"{standard_host or 'localhost'}:{standard_port or '5433'}/{standard_db or 'mindflow_test'}"
+        )
+
+    return os.getenv(
+        "POSTGRES_URL",
+        "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test",
+    )
+
 # Set test environment
 os.environ["TESTING"] = "true"
+os.environ["POSTGRES_URL"] = _resolve_test_db_url()
 
 
 # Event Loop Management
@@ -75,9 +126,7 @@ async def db_engine(event_loop) -> AsyncGenerator[AsyncEngine]:
     Individual tests use transactions for isolation.
     """
     # Use test database URL
-    test_db_url = os.getenv(
-        "POSTGRES_URL", "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test"
-    )
+    test_db_url = os.environ["POSTGRES_URL"]
 
     engine = create_async_engine(
         test_db_url,
