@@ -259,6 +259,34 @@ class TestRevokeRefreshToken:
         assert result is False
 
 
+class TestRevokeAllUserTokens:
+    async def test_revokes_all_active_tokens_for_user(self, session, make_user):
+        import asyncio
+
+        from sqlalchemy import select
+
+        user = await make_user()
+        await AuthService.create_tokens(session, user)
+        # Ensure distinct JWTs for unique token column
+        await asyncio.sleep(1)
+        await AuthService.create_tokens(session, user)
+        await session.flush()
+
+        revoked_count = await AuthService.revoke_all_user_tokens(session, user.id)
+
+        assert revoked_count == 2
+        stmt = select(RefreshToken).where(RefreshToken.user_id == user.id)
+        result = await session.execute(stmt)
+        stored_tokens = list(result.scalars().all())
+        assert len(stored_tokens) == 2
+        assert all(token.revoked is True for token in stored_tokens)
+        assert all(token.revoked_at is not None for token in stored_tokens)
+
+    async def test_returns_zero_when_user_has_no_active_tokens(self, session, make_user):
+        user = await make_user()
+        revoked_count = await AuthService.revoke_all_user_tokens(session, user.id)
+        assert revoked_count == 0
+
 # POST {api_prefix}/auth/login  (HTTP layer)
 
 

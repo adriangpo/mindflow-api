@@ -10,7 +10,7 @@ from src.features.auth.dependencies import get_current_active_user, require_role
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
-    CannotDeleteOwnAccount,
+    CannotDeactivateOwnAccount,
     UserNotFound,
 )
 from .models import User, UserRole
@@ -205,20 +205,20 @@ async def assign_tenants(
 
 
 @router.delete("/{user_id}", dependencies=[Depends(require_role(UserRole.ADMIN))])
-async def delete_user(
+async def deactivate_user(
     user_id: int,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Delete user (admin only)."""
+    """Deactivate user (admin only)."""
     if current_user.id == user_id:
-        raise CannotDeleteOwnAccount()
+        raise CannotDeactivateOwnAccount()
 
-    success = await UserService.delete_user(session, user_id)
+    success = await UserService.deactivate_user(session, user_id)
     await session.commit()
 
     if not success:
         raise UserNotFound()
 
-    logger.info(f"User deleted by admin {current_user.username}: {user_id}")
-    return {"message": "User deleted successfully"}
+    logger.info(f"User deactivated by admin {current_user.username}: {user_id}")
+    return {"message": "User deactivated successfully"}
