@@ -48,12 +48,14 @@ class AuthService:
         if not user:
             return None
 
-        if not user.is_active:
-            logger.warning(f"Login attempt for inactive account: {credential}")
-            return None
+        user.release_temporary_lock()
 
         if user.is_locked():
             logger.warning(f"Login attempt for locked account: {credential}")
+            return None
+
+        if not user.is_active:
+            logger.warning(f"Login attempt for inactive account: {credential}")
             return None
 
         if not user.verify_password(password):
@@ -68,6 +70,7 @@ class AuthService:
 
         user.failed_login_attempts = 0
         user.last_login_at = datetime.now(UTC)
+        user.status = UserStatus.ACTIVE.value
         user.locked_until = None
         user.is_logged_in = True
 

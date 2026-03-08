@@ -213,8 +213,9 @@ Error responses:
 
 - Loads user where `username == credential OR email == credential`
 - Returns `None` if user not found
+- If `status=locked` but `locked_until` is already in the past, restores account to active before auth checks
+- Returns `None` if account is currently locked (`locked_until > now`)
 - Returns `None` if user is inactive
-- Returns `None` if `user.is_locked()` is true
 - Wrong password:
   - increments `failed_login_attempts`
   - if attempts reach `>= 5`, sets `locked_until = now + 30 minutes` and `status = locked`
@@ -270,6 +271,7 @@ Error responses:
 - Expects bearer access token
 - Decodes token, requires `type=access`, requires `sub`
 - Loads user by `sub`
+- If `status=locked` but `locked_until` already expired, restores account to active
 - Rejects inactive and currently locked users
 - Calls `set_current_user(user)` for audit context
 
@@ -281,6 +283,12 @@ Possible errors:
 ### `get_current_active_user`
 
 - Wrapper returning `get_current_user` result
+
+### `get_optional_user`
+
+- Returns `None` when no bearer token is provided
+- Reuses `get_current_user` with the same DB session when credentials are present
+- Returns `None` for invalid token, inactive user, or currently locked user
 
 ### `require_role(*roles)`
 

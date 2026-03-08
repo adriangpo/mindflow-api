@@ -1,29 +1,21 @@
-"""Middleware to set current user in context for audit logging."""
+"""Middleware to scope audit context to a single request."""
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from .audit import clear_current_user, set_current_user
+from .audit import clear_current_user
 
 
 class AuditContextMiddleware(BaseHTTPMiddleware):
-    """Middleware that sets the current user in context for audit logging.
-
-    This middleware extracts the authenticated user from the request state
-    (set by the authentication dependencies) and stores it in the audit context.
-    """
+    """Middleware that scopes and clears audit user context per request."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        """Process request and set user context."""
+        """Process request and guarantee context cleanup."""
         # Clear any previous user context
         clear_current_user()
 
         try:
-            # Check if user is attached to request state by auth dependencies
-            if hasattr(request.state, "user"):
-                set_current_user(request.state.user)
-
             # Process request
             response: Response = await call_next(request)
 

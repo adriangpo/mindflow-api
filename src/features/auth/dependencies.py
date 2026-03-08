@@ -67,13 +67,15 @@ async def get_current_user(
     if user is None:
         raise InvalidTokenException(detail="User not found")
 
-    # Check if user is active (computed property checks if status == ACTIVE)
-    if not user.is_active:
-        raise UserInactiveException()
+    user.release_temporary_lock()
 
     # Check if account is locked
     if user.is_locked():
         raise UserLockedException()
+
+    # Check if user is active (computed property checks if status == ACTIVE)
+    if not user.is_active:
+        raise UserInactiveException()
 
     set_current_user(user)
     return user
@@ -135,12 +137,14 @@ def require_permission(*required_permissions: str):
 
 async def get_optional_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(HTTPBearer(auto_error=False)),
+    session: AsyncSession = Depends(get_db_session),
 ) -> User | None:
     """Get current user if token is provided, otherwise return None.
     Useful for endpoints that work with or without authentication.
 
     Args:
         credentials: Optional HTTP authorization credentials
+        session: Database session
 
     Returns:
         User object if authenticated, None otherwise
@@ -150,7 +154,7 @@ async def get_optional_user(
         return None
 
     try:
-        return await get_current_user(credentials)
+        return await get_current_user(credentials, session=session)
     except InvalidTokenException, UserInactiveException, UserLockedException:
         return None
 

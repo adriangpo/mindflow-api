@@ -7,9 +7,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import status
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 
 from src.config.settings import settings
+from src.features.auth.dependencies import get_optional_user
 from src.features.auth.exceptions import (
     InvalidTokenException,
     RefreshTokenExpiredException,
@@ -104,11 +106,15 @@ class TestAuthenticateUser:
         await make_user(
             email="expired_lock@example.com",
             password="Pass123!",
-            status=UserStatus.ACTIVE,
+            status=UserStatus.LOCKED,
+            failed_login_attempts=5,
             locked_until=datetime.now(UTC) - timedelta(minutes=1),  # already expired
         )
         user = await AuthService.authenticate_user(session, "expired_lock@example.com", "Pass123!")
         assert user is not None
+        assert user.status == UserStatus.ACTIVE
+        assert user.failed_login_attempts == 0
+        assert user.locked_until is None
 
 
 # AuthService.create_tokens
@@ -352,7 +358,7 @@ class TestRefreshEndpoint:
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_refresh_with_revoked_token_returns_404(self, session, client, make_user):
+    async def test_refresh_with_revoked_token_returns_401(self, session, client, make_user):
         await make_user(email="revoked@example.com", password="Pass123!")
         login = await client.post(
             f"{settings.api_prefix}/auth/login",
@@ -405,13 +411,12 @@ class TestLogoutEndpoint:
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["message"] == "Token already revoked or not found"
 
-    async def test_logout_without_auth_returns_403(self, client):
-        """HTTPBearer returns 403 when no Authorization header is present."""
+    async def test_logout_without_auth_returns_401(self, client):
+        """HTTPBearer returns 401 when no Authorization header is present."""
         response = await client.post(
             f"{settings.api_prefix}/auth/logout",
             json={"refresh_token": "any.token.here"},
         )
-        # Actually HTTPBearer returns 401 when no credentials provided
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
@@ -439,9 +444,8 @@ class TestGetCurrentUserDependency:
         # 200 means the dependency resolved the user correctly
         assert response.status_code == status.HTTP_200_OK
 
-    async def test_missing_token_returns_403(self, client):
+    async def test_missing_token_returns_401(self, client):
         response = await client.post(f"{settings.api_prefix}/auth/logout", json={"refresh_token": "x"})
-        # HTTPBearer returns 401 when no Authorization header is provided
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     async def test_malformed_token_returns_401(self, client):
@@ -490,6 +494,46 @@ class TestGetCurrentUserDependency:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_expired_lock_restores_active_status(self, session, client, make_user):
+        user = await make_user(email="expireddep@example.com", password="Pass123!")
+        login = await client.post(
+            f"{settings.api_prefix}/auth/login",
+            json={"email": "expireddep@example.com", "password": "Pass123!"},
+        )
+        token = login.json()["access_token"]
+
+        user.status = UserStatus.LOCKED
+        user.failed_login_attempts = 5
+        user.locked_until = datetime.now(UTC) - timedelta(minutes=1)
+        await session.flush()
+
+        response = await client.post(
+            f"{settings.api_prefix}/auth/logout",
+            json={"refresh_token": "x"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        await session.refresh(user)
+        assert user.status == UserStatus.ACTIVE
+        assert user.failed_login_attempts == 0
+        assert user.locked_until is None
+
+
+class TestGetOptionalUserDependency:
+    async def test_returns_none_without_credentials(self, session):
+        assert await get_optional_user(credentials=None, session=session) is None
+
+    async def test_resolves_user_when_access_token_is_valid(self, session, make_user):
+        user = await make_user(email="optionaldep@example.com", password="Pass123!")
+        tokens = await AuthService.create_tokens(session, user)
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=tokens.access_token)
+
+        resolved_user = await get_optional_user(credentials=credentials, session=session)
+
+        assert resolved_user is not None
+        assert resolved_user.id == user.id
 
 
 # User model unit tests (no HTTP, no DB)

@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import asyncio
-import getpass
 import sys
 from pathlib import Path
 
@@ -23,8 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.database.base import Base
-from src.database.client import close_db, get_engine, get_session, init_db
+from src.database.client import close_db, get_session, init_db
 from src.features.user.models import User, UserRole, UserStatus
 from src.shared.validators.password import validate_password_strength
 
@@ -32,36 +30,21 @@ from src.shared.validators.password import validate_password_strength
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(description="Create an admin user")
-    parser.add_argument("--email", required=True, help="Admin email")
-    parser.add_argument("--username", required=True, help="Admin username")
-    parser.add_argument("--full-name", required=True, help="Admin full name")
+    parser.add_argument("--email", default="admin@example.com", help="Admin email")
+    parser.add_argument("--username", default="sys.admin", help="Admin username")
+    parser.add_argument("--full-name", default="System Administrator", help="Admin full name")
     parser.add_argument(
         "--password",
-        required=False,
-        help="Admin password (if omitted, prompt securely)",
-    )
-    parser.add_argument(
-        "--bootstrap-schema",
-        action="store_true",
-        help="Create database tables if they do not exist (dev/local convenience)",
+        default="Admin123!",
+        help="Admin password",
     )
     return parser.parse_args()
 
 
-async def bootstrap_schema() -> None:
-    """Create all tables from SQLAlchemy metadata."""
-    engine = get_engine()
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-
-async def create_admin(email: str, username: str, full_name: str, password: str, bootstrap: bool = False) -> int:
+async def create_admin(email: str, username: str, full_name: str, password: str) -> int:
     """Create admin user and return id."""
     await init_db()
     try:
-        if bootstrap:
-            await bootstrap_schema()
-
         async with get_session() as session:
             stmt = select(User).where(or_(User.email == email, User.username == username))
             result = await session.execute(stmt)
@@ -98,7 +81,7 @@ async def create_admin(email: str, username: str, full_name: str, password: str,
 def main() -> int:
     """CLI entrypoint."""
     args = parse_args()
-    password = args.password or getpass.getpass("Password: ")
+    password = args.password
 
     try:
         validate_password_strength(password)
@@ -113,7 +96,6 @@ def main() -> int:
                 username=args.username.strip(),
                 full_name=args.full_name.strip(),
                 password=password,
-                bootstrap=args.bootstrap_schema,
             )
         )
     except ValueError as exc:
@@ -123,8 +105,7 @@ def main() -> int:
         if "UndefinedTableError" in str(exc) or 'relation "users" does not exist' in str(exc):
             print(
                 "Database schema is missing. Run migrations first:\n"
-                "  uv run alembic upgrade head\n"
-                "Or run this script with --bootstrap-schema for local/dev setup.",
+                "  uv run alembic upgrade head",
                 file=sys.stderr,
             )
             return 1
