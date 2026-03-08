@@ -86,19 +86,18 @@ docker-down:
 
 docker-test-up:
 	@echo "Ensuring PostgreSQL test service is running..."
-	@test_port=$$(awk -F= '/^POSTGRES_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
+	@test_port=$$(awk -F= '/^POSTGRES_TEST_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
 	if [ -n "$$test_port" ]; then \
 		POSTGRES_TEST_PORT=$$test_port docker compose up -d postgres_test; \
 	else \
 		docker compose up -d postgres_test; \
-	fi
-	@echo "Waiting for PostgreSQL test service to be ready..."
-	@container_id=$$(docker compose ps -q postgres_test); \
-	host_port=$$(docker compose port postgres_test 5432 2>/dev/null | sed -E 's#.*:([0-9]+)$$#\1#'); \
+	fi; \
+	echo "Waiting for PostgreSQL test service to be ready..."; \
+	container_id=$$(docker compose ps -q postgres_test); \
 	for i in $$(seq 1 30); do \
 		status=$$(docker inspect --format '{{.State.Health.Status}}' $$container_id 2>/dev/null || echo "starting"); \
 		if [ "$$status" = "healthy" ]; then \
-			echo "✓ PostgreSQL test service is running on port $$host_port"; \
+			echo "✓ PostgreSQL test service is ready on port $$test_port"; \
 			exit 0; \
 		fi; \
 		if [ "$$status" = "unhealthy" ]; then \
