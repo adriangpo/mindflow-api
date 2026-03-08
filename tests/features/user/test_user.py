@@ -6,8 +6,11 @@ from uuid import uuid7
 
 import pytest
 from fastapi import status
+from sqlalchemy import select
 
 from src.config.settings import settings
+from src.features.auth.models import RefreshToken
+from src.features.auth.service import AuthService
 from src.features.user.exceptions import (
     EmailAlreadyExists,
     IncorrectPassword,
@@ -242,11 +245,6 @@ class TestUserServiceDeactivate:
 
     async def test_deactivate_user_success(self, session, make_user):
         """Successfully deactivate a user."""
-        from sqlalchemy import select
-
-        from src.features.auth.models import RefreshToken
-        from src.features.auth.service import AuthService
-
         user = await make_user()
         user_id = user.id
         tokens = await AuthService.create_tokens(session, user)
@@ -646,11 +644,6 @@ class TestUserEndpointDeactivateUser:
 
     async def test_deactivate_user_as_admin(self, admin_client, make_user, session):
         """Admin can deactivate user."""
-        from sqlalchemy import select
-
-        from src.features.auth.models import RefreshToken
-        from src.features.auth.service import AuthService
-
         client, admin_user = admin_client
         user = await make_user(username="tobedeleted")
         tokens = await AuthService.create_tokens(session, user)

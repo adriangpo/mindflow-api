@@ -2,12 +2,20 @@
 Covers: AuthService, JWT dependencies, token lifecycle, account locking.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import status
+from sqlalchemy import select
 
 from src.config.settings import settings
+from src.features.auth.exceptions import (
+    InvalidTokenException,
+    RefreshTokenExpiredException,
+    RefreshTokenNotFoundException,
+)
+from src.features.auth.jwt_utils import decode_token
 from src.features.auth.models import RefreshToken
 from src.features.auth.service import AuthService
 from src.features.user.models import User, UserRole, UserStatus
@@ -40,8 +48,6 @@ class TestAuthenticateUser:
         assert result is None
 
     async def test_increments_failed_attempts_on_wrong_password(self, session, make_user):
-        from sqlalchemy import select
-
         await make_user(email="counter@example.com", password="RealPass123!")
         await AuthService.authenticate_user(session, "counter@example.com", "WrongPass!")
 
@@ -51,8 +57,6 @@ class TestAuthenticateUser:
         assert user.failed_login_attempts == 1
 
     async def test_locks_account_after_five_failures(self, session, make_user):
-        from sqlalchemy import select
-
         await make_user(
             email="lockme@example.com",
             password="RealPass123!",
@@ -120,8 +124,6 @@ class TestCreateTokens:
         assert tokens.expires_in > 0
 
     async def test_stores_refresh_token_in_db(self, session, make_user):
-        from sqlalchemy import select
-
         user = await make_user()
         tokens = await AuthService.create_tokens(session, user)
 
@@ -133,8 +135,6 @@ class TestCreateTokens:
         assert stored.revoked is False
 
     async def test_stores_ip_and_user_agent(self, session, make_user):
-        from sqlalchemy import select
-
         user = await make_user()
         tokens = await AuthService.create_tokens(session, user, ip_address="127.0.0.1", user_agent="pytest/1.0")
 
@@ -145,8 +145,6 @@ class TestCreateTokens:
         assert stored.user_agent == "pytest/1.0"
 
     async def test_access_token_contains_correct_claims(self, session, make_user):
-        from src.features.auth.jwt_utils import decode_token
-
         user = await make_user(roles=[UserRole.ADMIN])
         tokens = await AuthService.create_tokens(session, user)
         payload = decode_token(tokens.access_token)
@@ -161,10 +159,6 @@ class TestCreateTokens:
 
 class TestRefreshAccessToken:
     async def test_success(self, session, make_user):
-        import asyncio
-
-        from sqlalchemy import select
-
         user = await make_user()
         original = await AuthService.create_tokens(session, user)
         # Wait a second so new tokens have different iat claim
@@ -181,14 +175,10 @@ class TestRefreshAccessToken:
         assert stored_old is not None  # Old token still stored (not deleted)
 
     async def test_raises_for_invalid_token_string(self, session):
-        from src.features.auth.exceptions import InvalidTokenException
-
         with pytest.raises(InvalidTokenException):
             await AuthService.refresh_access_token(session, "this.is.garbage")
 
     async def test_raises_for_revoked_token(self, session, make_user):
-        from src.features.auth.exceptions import RefreshTokenNotFoundException
-
         user = await make_user()
         tokens = await AuthService.create_tokens(session, user)
         await AuthService.revoke_refresh_token(session, tokens.refresh_token)
@@ -197,10 +187,6 @@ class TestRefreshAccessToken:
             await AuthService.refresh_access_token(session, tokens.refresh_token)
 
     async def test_raises_for_expired_token(self, session, make_user):
-        from sqlalchemy import select
-
-        from src.features.auth.exceptions import RefreshTokenExpiredException
-
         user = await make_user()
         tokens = await AuthService.create_tokens(session, user)
 
@@ -215,8 +201,6 @@ class TestRefreshAccessToken:
             await AuthService.refresh_access_token(session, tokens.refresh_token)
 
     async def test_raises_for_inactive_user(self, session, make_user):
-        from src.features.auth.exceptions import InvalidTokenException
-
         user = await make_user(status=UserStatus.INACTIVE)
         tokens = await AuthService.create_tokens(session, user)
 
@@ -232,8 +216,6 @@ class TestRefreshAccessToken:
 
 class TestRevokeRefreshToken:
     async def test_revokes_valid_token(self, session, make_user):
-        from sqlalchemy import select
-
         user = await make_user()
         tokens = await AuthService.create_tokens(session, user)
 
@@ -261,10 +243,6 @@ class TestRevokeRefreshToken:
 
 class TestRevokeAllUserTokens:
     async def test_revokes_all_active_tokens_for_user(self, session, make_user):
-        import asyncio
-
-        from sqlalchemy import select
-
         user = await make_user()
         await AuthService.create_tokens(session, user)
         # Ensure distinct JWTs for unique token column
@@ -286,6 +264,7 @@ class TestRevokeAllUserTokens:
         user = await make_user()
         revoked_count = await AuthService.revoke_all_user_tokens(session, user.id)
         assert revoked_count == 0
+
 
 # POST {api_prefix}/auth/login  (HTTP layer)
 
@@ -349,8 +328,6 @@ class TestLoginEndpoint:
 
 class TestRefreshEndpoint:
     async def test_refresh_success(self, client, make_user):
-        import asyncio
-
         await make_user(email="refresh@example.com", password="Pass123!")
         login = await client.post(
             f"{settings.api_prefix}/auth/login",

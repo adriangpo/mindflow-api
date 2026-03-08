@@ -5,6 +5,7 @@ Tests AuditLog model and audit helper functions.
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import select
 
 from src.shared.audit.audit import (
     AuditAction,
@@ -168,8 +169,6 @@ class TestCreateAuditLog:
         await session.commit()
 
         # Verify audit log was created
-        from sqlalchemy import select
-
         stmt = select(AuditLog).where(AuditLog.entity_type == "test_items")
         result = await session.execute(stmt)
         audit_log = result.scalar_one_or_none()
@@ -199,8 +198,6 @@ class TestCreateAuditLog:
         await session.commit()
 
         # Verify audit log was created with diff
-        from sqlalchemy import select
-
         stmt = select(AuditLog).where(AuditLog.entity_type == "test_items")
         result = await session.execute(stmt)
         audit_log = result.scalar_one_or_none()
@@ -233,8 +230,6 @@ class TestCreateAuditLog:
             await session.commit()
 
             # Verify audit log has user_id
-            from sqlalchemy import select
-
             stmt = select(AuditLog).where(AuditLog.entity_type == "test_items")
             result = await session.execute(stmt)
             audit_log = result.scalar_one_or_none()

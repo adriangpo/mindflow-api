@@ -228,7 +228,7 @@ class UserService:
             return False
 
         revoked_tokens = await AuthService.revoke_all_user_tokens(session, user.id)
-        
+
         user.status = UserStatus.INACTIVE.value
         user.is_logged_in = False
         user.updated_at = datetime.now(UTC)

@@ -21,6 +21,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 
+from src.database import client as db_module
 from src.database.base import Base
 from src.database.client import set_tenant_context
 from src.database.dependencies import get_db_session, get_tenant_db_session
@@ -68,9 +69,7 @@ def _resolve_test_db_url() -> str:
     standard_password = os.getenv("POSTGRES_PASSWORD")
     standard_db = os.getenv("POSTGRES_DB")
 
-    has_standard_components = any(
-        [standard_host, standard_port, standard_user, standard_password, standard_db]
-    )
+    has_standard_components = any([standard_host, standard_port, standard_user, standard_password, standard_db])
     if has_standard_components:
         return (
             "postgresql+asyncpg://"
@@ -82,6 +81,7 @@ def _resolve_test_db_url() -> str:
         "POSTGRES_URL",
         "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test",
     )
+
 
 # Set test environment
 os.environ["TESTING"] = "true"
@@ -214,8 +214,6 @@ async def ensure_test_tenant_exists(session: AsyncSession, tenant_id: UUID):
 @pytest.fixture(autouse=True)
 def mock_db_initialization():
     """Mock init_db and close_db so lifespan doesn't interfere with tests."""
-    from src.database import client as db_module
-
     # Store original functions
     original_init_db = db_module.init_db
     original_close_db = db_module.close_db

@@ -24,7 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.database.base import Base
-from src.database.client import close_db, get_session, init_db
+from src.database.client import close_db, get_engine, get_session, init_db
 from src.features.user.models import User, UserRole, UserStatus
 from src.shared.validators.password import validate_password_strength
 
@@ -50,8 +50,6 @@ def parse_args() -> argparse.Namespace:
 
 async def bootstrap_schema() -> None:
     """Create all tables from SQLAlchemy metadata."""
-    from src.database.client import get_engine
-
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
