@@ -1,4 +1,4 @@
-.PHONY: help lint format type-check test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down docker-test-up docker-test-down
+.PHONY: help lint format type-check test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down docker-test-up docker-test-down docker-test-reset
 UV_RUN := uv run
 ENVIRONMENT ?= development
 CLEAR_VOLUMES ?= false
@@ -22,12 +22,14 @@ help:
 	@echo "  make docker-down      Stop Docker services (supports cleanup flags)"
 	@echo "  make docker-test-up   Start PostgreSQL test service"
 	@echo "  make docker-test-down Stop PostgreSQL test service"
+	@echo "  make docker-test-reset Force recreate PostgreSQL test service"
 	@echo ""
 	@echo "  Examples:"
 	@echo "    make docker-start ENVIRONMENT=development"
 	@echo "    make docker-start ENVIRONMENT=production"
 	@echo "    make docker-up ENVIRONMENT=staging"
 	@echo "    make docker-test-up"
+	@echo "    make docker-test-reset"
 	@echo "    make docker-down ENVIRONMENT=development CLEAR_VOLUMES=true"
 	@echo "    make docker-down REMOVE_ORPHANS=false REMOVE_IMAGES=local"
 	@echo ""
@@ -83,16 +85,42 @@ docker-down:
 	@echo "✓ Docker services stopped"
 
 docker-test-up:
-	@echo "Starting PostgreSQL test service..."
-	@docker compose up -d postgres_test
+	@echo "Ensuring PostgreSQL test service is running..."
+	@test_port=$$(awk -F= '/^POSTGRES_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
+	if [ -n "$$test_port" ]; then \
+		POSTGRES_TEST_PORT=$$test_port docker compose up -d postgres_test; \
+	else \
+		docker compose up -d postgres_test; \
+	fi
 	@echo "Waiting for PostgreSQL test service to be ready..."
-	@sleep 2
-	@echo "✓ PostgreSQL test service is running on port $${POSTGRES_TEST_PORT:-5433}"
+	@container_id=$$(docker compose ps -q postgres_test); \
+	host_port=$$(docker compose port postgres_test 5432 2>/dev/null | sed -E 's#.*:([0-9]+)$$#\1#'); \
+	for i in $$(seq 1 30); do \
+		status=$$(docker inspect --format '{{.State.Health.Status}}' $$container_id 2>/dev/null || echo "starting"); \
+		if [ "$$status" = "healthy" ]; then \
+			echo "✓ PostgreSQL test service is running on port $$host_port"; \
+			exit 0; \
+		fi; \
+		if [ "$$status" = "unhealthy" ]; then \
+			echo "ERROR: PostgreSQL test service became unhealthy"; \
+			docker logs --tail 80 $$container_id; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	echo "ERROR: Timed out waiting for PostgreSQL test service to become healthy"; \
+	docker logs --tail 80 $$container_id; \
+	exit 1
 
 docker-test-down:
 	@echo "Stopping PostgreSQL test service..."
 	@docker compose stop postgres_test
 	@echo "✓ PostgreSQL test service stopped"
+
+docker-test-reset:
+	@echo "Resetting PostgreSQL test service..."
+	@docker compose rm -f -s postgres_test >/dev/null 2>&1 || true
+	@$(MAKE) docker-test-up
 
 db-upgrade:
 	@echo "Applying database migrations..."
