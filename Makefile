@@ -1,4 +1,4 @@
-.PHONY: help lint format type-check test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down
+.PHONY: help lint format type-check test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down docker-test-up docker-test-down
 UV_RUN := uv run
 ENVIRONMENT ?= development
 CLEAR_VOLUMES ?= false
@@ -20,11 +20,14 @@ help:
 	@echo "  make docker-start     Start API + DB (ENVIRONMENT=development|staging|production)"
 	@echo "  make docker-up        Start API + DB without build"
 	@echo "  make docker-down      Stop Docker services (supports cleanup flags)"
+	@echo "  make docker-test-up   Start PostgreSQL test service"
+	@echo "  make docker-test-down Stop PostgreSQL test service"
 	@echo ""
 	@echo "  Examples:"
 	@echo "    make docker-start ENVIRONMENT=development"
 	@echo "    make docker-start ENVIRONMENT=production"
 	@echo "    make docker-up ENVIRONMENT=staging"
+	@echo "    make docker-test-up"
 	@echo "    make docker-down ENVIRONMENT=development CLEAR_VOLUMES=true"
 	@echo "    make docker-down REMOVE_ORPHANS=false REMOVE_IMAGES=local"
 	@echo ""
@@ -78,6 +81,18 @@ docker-down:
 	fi; \
 	eval "$$cmd"
 	@echo "✓ Docker services stopped"
+
+docker-test-up:
+	@echo "Starting PostgreSQL test service..."
+	@docker compose up -d postgres_test
+	@echo "Waiting for PostgreSQL test service to be ready..."
+	@sleep 2
+	@echo "✓ PostgreSQL test service is running on port $${POSTGRES_TEST_PORT:-5433}"
+
+docker-test-down:
+	@echo "Stopping PostgreSQL test service..."
+	@docker compose stop postgres_test
+	@echo "✓ PostgreSQL test service stopped"
 
 db-upgrade:
 	@echo "Applying database migrations..."
