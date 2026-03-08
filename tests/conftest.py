@@ -1,7 +1,7 @@
 """Test configuration and fixtures.
 
 Optimized test setup using transaction rollback strategy with multi-tenancy support:
-1. Database schema is created once per test session
+1. Database schema is migrated once per test session with Alembic
 2. Each test runs in a transaction that is rolled back after completion
 3. Tests are isolated but fast - no database recreation
 4. Uses SQLAlchemy's connection + SAVEPOINT pattern for proper isolation
@@ -10,7 +10,8 @@ Optimized test setup using transaction rollback strategy with multi-tenancy supp
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator
+import subprocess
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 from uuid import UUID, uuid7
 
@@ -20,9 +21,9 @@ from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from src.database import client as db_module
-from src.database.base import Base
 from src.database.client import set_tenant_context
 from src.database.dependencies import get_db_session, get_tenant_db_session
 from src.features.auth.dependencies import get_current_active_user, get_current_user
@@ -39,21 +40,20 @@ def _resolve_test_db_url() -> str:
     """Resolve the PostgreSQL URL used by tests.
 
     Priority:
-    1. TEST_POSTGRES_URL / POSTGRES_TEST_URL (explicit test URL)
-    2. Component-based test vars (POSTGRES_TEST_*)
-    3. Component-based standard vars (POSTGRES_*) from .env.test
-    4. POSTGRES_URL (legacy fallback)
-    5. Safe default matching docker-compose postgres_test service
+    1. TEST_POSTGRES_URL (explicit test URL)
+    2. Component-based vars from .env.test (TEST_POSTGRES_*)
+    3. Backward-compatible component vars (POSTGRES_*)
+    4. Safe default matching docker-compose postgres_test service
     """
-    explicit_test_url = os.getenv("TEST_POSTGRES_URL") or os.getenv("POSTGRES_TEST_URL")
+    explicit_test_url = os.getenv("TEST_POSTGRES_URL")
     if explicit_test_url:
         return explicit_test_url
 
-    test_host = os.getenv("POSTGRES_TEST_HOST")
-    test_port = os.getenv("POSTGRES_TEST_PORT")
-    test_user = os.getenv("POSTGRES_TEST_USER")
-    test_password = os.getenv("POSTGRES_TEST_PASSWORD")
-    test_db = os.getenv("POSTGRES_TEST_DB")
+    test_host = os.getenv("TEST_POSTGRES_HOST")
+    test_port = os.getenv("TEST_POSTGRES_PORT")
+    test_user = os.getenv("TEST_POSTGRES_USER")
+    test_password = os.getenv("TEST_POSTGRES_PASSWORD")
+    test_db = os.getenv("TEST_POSTGRES_DB")
 
     has_test_components = any([test_host, test_port, test_user, test_password, test_db])
     if has_test_components:
@@ -77,22 +77,21 @@ def _resolve_test_db_url() -> str:
             f"{standard_host or 'localhost'}:{standard_port or '5433'}/{standard_db or 'mindflow_test'}"
         )
 
-    return os.getenv(
-        "POSTGRES_URL",
-        "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test",
-    )
+    return "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test"
 
 
 # Set test environment
 os.environ["TESTING"] = "true"
 os.environ["POSTGRES_URL"] = _resolve_test_db_url()
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 # Event Loop Management
 
 
-@pytest_asyncio.fixture(scope="session")  # type: ignore
-def event_loop():
+@pytest.fixture(scope="session")
+def event_loop() -> Generator[asyncio.AbstractEventLoop]:
     """Create a single event loop for the entire test session."""
     # Use asyncio.new_event_loop() which uses the current policy
     loop = asyncio.new_event_loop()
@@ -104,7 +103,7 @@ def event_loop():
 # Tenant Management
 
 
-@pytest_asyncio.fixture(scope="function")  # type: ignore
+@pytest.fixture(scope="function")
 def tenant_id() -> UUID:
     """Create a unique test tenant ID for each test.
 
@@ -118,11 +117,40 @@ def tenant_id() -> UUID:
 # Database Setup - Session Scope (Created Once)
 
 
-@pytest_asyncio.fixture(scope="session")
-async def db_engine(event_loop) -> AsyncGenerator[AsyncEngine]:
-    """Create database engine and schema once for all tests.
+@pytest.fixture(scope="session", autouse=True)
+def apply_test_migrations() -> Generator[None]:
+    """Apply Alembic migrations to the test database schema.
 
-    The schema is created at the start of the test session and dropped at the end.
+    This keeps tests aligned with migration-defined behavior (including RLS policies).
+    """
+    env = os.environ.copy()
+
+    subprocess.run(
+        ["alembic", "downgrade", "base"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+    subprocess.run(
+        ["alembic", "upgrade", "head"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+    yield
+    subprocess.run(
+        ["alembic", "downgrade", "base"],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+
+
+@pytest_asyncio.fixture(scope="session")
+async def db_engine(event_loop, apply_test_migrations) -> AsyncGenerator[AsyncEngine]:
+    """Create database engine once for all tests.
+
+    Schema setup is handled by Alembic in apply_test_migrations.
     Individual tests use transactions for isolation.
     """
     # Use test database URL
@@ -131,19 +159,10 @@ async def db_engine(event_loop) -> AsyncGenerator[AsyncEngine]:
     engine = create_async_engine(
         test_db_url,
         echo=False,
-        poolclass=None,  # Use NullPool to avoid connection pool issues in tests
+        poolclass=NullPool,  # Avoid connection pool reuse across tests
     )
 
-    # Drop all tables and recreate (ensures schema matches current models)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-
     yield engine
-
-    # Cleanup: drop all tables at the end of test session
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
 
     await engine.dispose()
 

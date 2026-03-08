@@ -43,7 +43,7 @@ help:
 	@echo "  make format           Format code with black"
 	@echo "  make lint             Run all linting checks (ruff + black --check)"
 	@echo "  make type-check       Run type checking with mypy"
-	@echo "  make check-all        Run lint + type-check (all checks without changes)"
+	@echo "  make check-all        Run format + lint + type-check"
 	@echo ""
 	@echo "Testing:"
 	@echo "  make test             Run all tests"
@@ -86,14 +86,12 @@ docker-down:
 
 docker-test-up:
 	@echo "Ensuring PostgreSQL test service is running..."
-	@test_port=$$(awk -F= '/^POSTGRES_TEST_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
-	if [ -n "$$test_port" ]; then \
-		POSTGRES_TEST_PORT=$$test_port docker compose up -d postgres_test; \
-	else \
-		docker compose up -d postgres_test; \
-	fi; \
+	@test -f .env.test || { echo "ERROR: .env.test not found. Create it from .env.test.example."; exit 1; }; \
+	test_port=$$(awk -F= '/^TEST_POSTGRES_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
+	if [ -z "$$test_port" ]; then test_port="5433"; fi; \
+	docker compose --env-file .env.test up -d postgres_test; \
 	echo "Waiting for PostgreSQL test service to be ready..."; \
-	container_id=$$(docker compose ps -q postgres_test); \
+	container_id=$$(docker compose --env-file .env.test ps -q postgres_test); \
 	for i in $$(seq 1 30); do \
 		status=$$(docker inspect --format '{{.State.Health.Status}}' $$container_id 2>/dev/null || echo "starting"); \
 		if [ "$$status" = "healthy" ]; then \
@@ -113,12 +111,12 @@ docker-test-up:
 
 docker-test-down:
 	@echo "Stopping PostgreSQL test service..."
-	@docker compose stop postgres_test
+	@docker compose --env-file .env.test stop postgres_test
 	@echo "✓ PostgreSQL test service stopped"
 
 docker-test-reset:
 	@echo "Resetting PostgreSQL test service..."
-	@docker compose rm -f -s postgres_test >/dev/null 2>&1 || true
+	@docker compose --env-file .env.test rm -f -s postgres_test >/dev/null 2>&1 || true
 	@$(MAKE) docker-test-up
 
 db-upgrade:

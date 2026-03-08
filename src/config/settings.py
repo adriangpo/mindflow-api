@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     postgres_user: str = "mindflow"
     postgres_password: str = "mindflow"
     postgres_db: str = "mindflow"
+    postgres_host: str = "localhost"
     postgres_port: int = 5432
-    postgres_test_port: int = 5433
     postgres_url: str = ""
     postgres_pool_size: int = 10
     postgres_max_overflow: int = 20
@@ -97,8 +97,9 @@ class Settings(BaseSettings):
         user = str(info.data.get("postgres_user", "mindflow"))
         password = str(info.data.get("postgres_password", "mindflow"))
         db = str(info.data.get("postgres_db", "mindflow"))
+        host = str(info.data.get("postgres_host", "localhost"))
         port = int(info.data.get("postgres_port", 5432))
-        return f"postgresql+asyncpg://{user}:{password}@localhost:{port}/{db}"
+        return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db}"
 
     def get_cors_configuration(self) -> CORSConfiguration:
         """Get CORS configuration based on environment settings.
