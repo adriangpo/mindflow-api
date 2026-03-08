@@ -61,9 +61,21 @@ def upgrade() -> None:
             op.f("ix_schedule_configurations_tenant_id"), "schedule_configurations", ["tenant_id"], unique=False
         )
 
+    op.execute("ALTER TABLE schedule_configurations ENABLE ROW LEVEL SECURITY")
+    op.execute("DROP POLICY IF EXISTS schedule_configurations_tenant_isolation ON schedule_configurations")
+    op.execute(
+        """
+        CREATE POLICY schedule_configurations_tenant_isolation ON schedule_configurations
+        FOR ALL
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+        """
+    )
+
 
 def downgrade() -> None:
     """Revert migration."""
+    op.execute("DROP POLICY IF EXISTS schedule_configurations_tenant_isolation ON schedule_configurations")
     op.drop_index(op.f("ix_schedule_configurations_tenant_id"), table_name="schedule_configurations")
     op.drop_index(op.f("ix_schedule_configurations_user_id"), table_name="schedule_configurations")
     op.drop_table("schedule_configurations")

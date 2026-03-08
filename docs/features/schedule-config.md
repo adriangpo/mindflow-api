@@ -298,6 +298,7 @@ Validation errors:
 - create stores actor as `user_id` (creator reference)
 - model includes `AuditableMixin`, so inserts/updates/deletes generate audit entries
 - tenant DB dependency sets transaction-scoped PostgreSQL tenant context before operations
+- database migration enables RLS policy `schedule_configurations_tenant_isolation` tied to `app.current_tenant`
 
 Transaction behavior:
 

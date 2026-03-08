@@ -220,11 +220,14 @@ Isolation layers:
 3. `require_tenant_membership` validates user assignment
 4. `get_tenant_db_session` sets `SET LOCAL app.current_tenant`
 5. Services apply tenant filters in queries
-6. RLS is enabled for `patients`, `schedule_appointments`, `schedule_appointment_history`
+6. RLS is enabled for `schedule_configurations`, `patients`, `schedule_appointments`, `schedule_appointment_history`
 
-Important:
+Mandatory rule for tenant-scoped models:
 
-- `schedule_configurations` is tenant-scoped by application filters and constraints, but currently has no RLS policy migration.
+- Every tenant-scoped table must enforce RLS in Alembic migrations, not only in service-layer filters.
+- Migrations for tenant-scoped tables must include `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`.
+- Migrations for tenant-scoped tables must create a tenant-isolation policy using `app.current_tenant` for both `USING` and `WITH CHECK`.
+- When a table is changed by later migrations, re-apply policy creation idempotently (`DROP POLICY IF EXISTS ...` then `CREATE POLICY ...`) to backfill older environments safely.
 
 ```mermaid
 flowchart TD
@@ -263,16 +266,22 @@ Current setup:
 - `alembic/env.py` imports all model modules for metadata
 - Migrations live in `alembic/versions/`
 
+RLS rule for migrations:
+
+- Any migration that creates a tenant-scoped table must also enable RLS and create its tenant policy in the same revision.
+- Any migration that introduces tenancy to an existing table (for example, tenant FK/backfill) must enforce the RLS policy in that revision.
+- Downgrades for tenant-scoped tables must drop tenant policies with `DROP POLICY IF EXISTS` before dropping the table/constraint.
+
 Current migration chain:
 
 1. users
 2. refresh_tokens
 3. audit_logs
 4. tenants + `users.tenant_ids`
-5. schedule_configurations
+5. schedule_configurations (+ RLS)
 6. schedule configuration tenant-level uniqueness
 7. patients (+ RLS)
-8. schedule_config tenant FK
+8. schedule_config tenant FK (+ RLS backfill enforcement)
 9. schedule appointments + history (+ RLS)
 
 ---
@@ -449,7 +458,8 @@ When adding or extending a feature:
 4. Reuse auth dependencies for authentication, RBAC, and tenant membership checks.
 5. Register routers in `src/main.py` under the correct group (public or tenant-protected).
 6. Add migration(s) for schema changes and keep Alembic imports updated.
-7. Prepare verification artifacts:
+7. For any tenant-scoped model migration, enforce RLS (`ENABLE ROW LEVEL SECURITY` + tenant policy based on `app.current_tenant`).
+8. Prepare verification artifacts:
 
 - update/create tests for changed behavior
 - update docs for changed behavior
@@ -502,6 +512,8 @@ After any code change, complete all checkpoints below.
 - If schema changed, add migration file(s) in `alembic/versions/`.
 - Keep `upgrade()`/`downgrade()` coherent and reversible.
 - Update `alembic/env.py` imports for new model modules.
+- For tenant-scoped tables, verify migration-level RLS exists (`ENABLE ROW LEVEL SECURITY` + tenant policy using `app.current_tenant`).
+- For tenant-scoped downgrade paths, verify policies are dropped idempotently with `DROP POLICY IF EXISTS`.
 
 ### 15.4 Tests and quality
 

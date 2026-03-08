@@ -69,12 +69,15 @@ def upgrade() -> None:
         op.create_index(op.f("ix_patients_is_active"), "patients", ["is_active"], unique=False)
 
     op.execute("ALTER TABLE patients ENABLE ROW LEVEL SECURITY")
-    op.execute("""
+    op.execute("DROP POLICY IF EXISTS patients_tenant_isolation ON patients")
+    op.execute(
+        """
         CREATE POLICY patients_tenant_isolation ON patients
         FOR ALL
         USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
         WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
-        """)
+        """
+    )
 
 
 def downgrade() -> None:
