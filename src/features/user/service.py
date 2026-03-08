@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.features.auth.service import AuthService
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
@@ -217,14 +218,20 @@ class UserService:
         return True
 
     @staticmethod
-    async def delete_user(session: AsyncSession, user_id: int) -> bool:
-        """Delete user by ID."""
+    async def deactivate_user(session: AsyncSession, user_id: int) -> bool:
+        """Deactivate user by ID."""
         stmt = select(User).where(User.id == user_id)
         result = await session.execute(stmt)
         user = result.scalar_one_or_none()
 
-        if user:
-            await session.delete(user)
-            logger.info(f"User deleted: {user.username}")
-            return True
-        return False
+        if not user:
+            return False
+
+        revoked_tokens = await AuthService.revoke_all_user_tokens(session, user.id)
+        
+        user.status = UserStatus.INACTIVE.value
+        user.is_logged_in = False
+        user.updated_at = datetime.now(UTC)
+
+        logger.info(f"User deactivated: {user.username} (revoked_refresh_tokens={revoked_tokens})")
+        return True

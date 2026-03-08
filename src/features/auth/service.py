@@ -164,3 +164,25 @@ class AuthService:
             return True
 
         return False
+
+    @staticmethod
+    async def revoke_all_user_tokens(session: AsyncSession, user_id: int) -> int:
+        """Revoke all active refresh tokens for a user.
+
+        Returns:
+            Number of tokens revoked.
+
+        """
+        stmt = select(RefreshToken).where(RefreshToken.user_id == user_id, ~RefreshToken.revoked)
+        result = await session.execute(stmt)
+        tokens = list(result.scalars().all())
+
+        if not tokens:
+            return 0
+
+        revoked_at = datetime.now(UTC)
+        for token in tokens:
+            token.revoked = True
+            token.revoked_at = revoked_at
+
+        return len(tokens)

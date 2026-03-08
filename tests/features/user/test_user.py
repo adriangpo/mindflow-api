@@ -237,25 +237,41 @@ class TestUserServicePassword:
         assert updated_user.updated_at > original_updated_at
 
 
-class TestUserServiceDelete:
-    """Tests for UserService.delete_user()"""
+class TestUserServiceDeactivate:
+    """Tests for UserService.deactivate_user()."""
 
-    async def test_delete_user_success(self, session, make_user):
-        """Successfully delete a user."""
+    async def test_deactivate_user_success(self, session, make_user):
+        """Successfully deactivate a user."""
+        from sqlalchemy import select
+
+        from src.features.auth.models import RefreshToken
+        from src.features.auth.service import AuthService
+
         user = await make_user()
         user_id = user.id
+        tokens = await AuthService.create_tokens(session, user)
+        await session.flush()
 
-        success = await UserService.delete_user(session, user_id)
+        success = await UserService.deactivate_user(session, user_id)
         await session.commit()
 
         assert success is True
-        deleted = await UserService.get_user(session, user_id)
-        assert deleted is None
+        deactivated = await UserService.get_user(session, user_id)
+        assert deactivated is not None
+        assert deactivated.status == UserStatus.INACTIVE
+        assert deactivated.is_logged_in is False
 
-    async def test_delete_nonexistent_user(self, session):
-        """Deleting nonexistent user returns False."""
+        stmt = select(RefreshToken).where(RefreshToken.token == tokens.refresh_token)
+        result = await session.execute(stmt)
+        stored_token = result.scalar_one_or_none()
+        assert stored_token is not None
+        assert stored_token.revoked is True
+        assert stored_token.revoked_at is not None
+
+    async def test_deactivate_nonexistent_user(self, session):
+        """Deactivating nonexistent user returns False."""
         fake_id = 999999
-        success = await UserService.delete_user(session, fake_id)
+        success = await UserService.deactivate_user(session, fake_id)
         assert success is False
 
 
@@ -625,29 +641,47 @@ class TestUserEndpointAssignTenants:
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-class TestUserEndpointDeleteUser:
-    """Tests for DELETE {api_prefix}/users/{id} (admin only)"""
+class TestUserEndpointDeactivateUser:
+    """Tests for DELETE {api_prefix}/users/{id} (admin only)."""
 
-    async def test_delete_user_as_admin(self, admin_client, make_user):
-        """Admin can delete user."""
+    async def test_deactivate_user_as_admin(self, admin_client, make_user, session):
+        """Admin can deactivate user."""
+        from sqlalchemy import select
+
+        from src.features.auth.models import RefreshToken
+        from src.features.auth.service import AuthService
+
         client, admin_user = admin_client
         user = await make_user(username="tobedeleted")
+        tokens = await AuthService.create_tokens(session, user)
+        await session.flush()
 
         response = await client.delete(f"{settings.api_prefix}/users/{user.id}")
 
         assert response.status_code == status.HTTP_200_OK
-        assert "deleted successfully" in response.json()["message"]
+        assert "deactivated successfully" in response.json()["message"]
 
-    async def test_cannot_delete_own_account(self, admin_client):
-        """Admin cannot delete their own account."""
+        deactivated = await UserService.get_user(session, user.id)
+        assert deactivated is not None
+        assert deactivated.status == UserStatus.INACTIVE
+        assert deactivated.is_logged_in is False
+
+        stmt = select(RefreshToken).where(RefreshToken.token == tokens.refresh_token)
+        result = await session.execute(stmt)
+        stored_token = result.scalar_one_or_none()
+        assert stored_token is not None
+        assert stored_token.revoked is True
+
+    async def test_cannot_deactivate_own_account(self, admin_client):
+        """Admin cannot deactivate their own account."""
         client, admin_user = admin_client
 
         response = await client.delete(f"{settings.api_prefix}/users/{admin_user.id}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    async def test_delete_nonexistent_user_as_admin(self, admin_client):
-        """Deleting nonexistent user returns 404."""
+    async def test_deactivate_nonexistent_user_as_admin(self, admin_client):
+        """Deactivating nonexistent user returns 404."""
         client, admin_user = admin_client
         fake_id = "000000000000000000000000"
 
@@ -655,8 +689,8 @@ class TestUserEndpointDeleteUser:
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_delete_user_non_admin_forbidden(self, auth_client, make_user):
-        """Non-admin cannot delete users."""
+    async def test_deactivate_user_non_admin_forbidden(self, auth_client, make_user):
+        """Non-admin cannot deactivate users."""
         client, user = auth_client
         other_user = await make_user(username="other")
 
@@ -923,18 +957,22 @@ class TestUserEndpointEdgeCases:
         # Validation requires at least one permission
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
-    async def test_delete_user_twice(self, admin_client, make_user):
-        """Test deleting same user twice."""
+    async def test_deactivate_user_twice(self, admin_client, make_user, session):
+        """Test deactivating the same user twice."""
         client, admin_user = admin_client
         user = await make_user(username="tobedeleted")
 
-        # First delete
+        # First deactivation
         response1 = await client.delete(f"{settings.api_prefix}/users/{user.id}")
         assert response1.status_code == status.HTTP_200_OK
 
-        # Second delete
+        # Second deactivation (idempotent)
         response2 = await client.delete(f"{settings.api_prefix}/users/{user.id}")
-        assert response2.status_code == status.HTTP_404_NOT_FOUND
+        assert response2.status_code == status.HTTP_200_OK
+
+        persisted = await UserService.get_user(session, user.id)
+        assert persisted is not None
+        assert persisted.status == UserStatus.INACTIVE
 
     async def test_update_me_with_invalid_email(self, auth_client):
         """Test updating own email with invalid format."""
