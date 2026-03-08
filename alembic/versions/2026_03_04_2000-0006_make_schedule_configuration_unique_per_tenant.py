@@ -15,6 +15,22 @@ down_revision: str | None = "0005_schedule_config"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
+POLICY_NAME = "schedule_configurations_tenant_isolation"
+
+
+def _reapply_schedule_configuration_tenant_policy() -> None:
+    """Ensure schedule_configurations tenant isolation policy is present and current."""
+    op.execute("ALTER TABLE schedule_configurations ENABLE ROW LEVEL SECURITY")
+    op.execute(f"DROP POLICY IF EXISTS {POLICY_NAME} ON schedule_configurations")
+    op.execute(
+        f"""
+        CREATE POLICY {POLICY_NAME} ON schedule_configurations
+        FOR ALL
+        USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+        WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
+        """
+    )
+
 
 def upgrade() -> None:
     """Apply migration."""
@@ -47,10 +63,12 @@ def upgrade() -> None:
         "schedule_configurations",
         ["tenant_id"],
     )
+    _reapply_schedule_configuration_tenant_policy()
 
 
 def downgrade() -> None:
     """Revert migration."""
+    op.execute(f"DROP POLICY IF EXISTS {POLICY_NAME} ON schedule_configurations")
     op.drop_constraint(
         "uq_schedule_configuration_tenant",
         "schedule_configurations",
@@ -61,3 +79,4 @@ def downgrade() -> None:
         "schedule_configurations",
         ["tenant_id", "user_id"],
     )
+    _reapply_schedule_configuration_tenant_policy()
