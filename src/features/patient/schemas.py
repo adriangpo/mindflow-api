@@ -136,9 +136,8 @@ class PatientCreateRequest(BaseModel):
         if self.first_session_date is not None and self.first_session_date < self.birth_date:
             raise ValueError("first_session_date cannot be before birth_date")
 
-        if _is_minor(self.birth_date):
-            if self.guardian_name is None or self.guardian_phone is None:
-                raise ValueError("guardian_name and guardian_phone are required for minors")
+        if _is_minor(self.birth_date) and (self.guardian_name is None or self.guardian_phone is None):
+            raise ValueError("guardian_name and guardian_phone are required for minors")
 
         return self
 

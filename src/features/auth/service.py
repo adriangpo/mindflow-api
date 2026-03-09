@@ -51,11 +51,11 @@ class AuthService:
         user.release_temporary_lock()
 
         if user.is_locked():
-            logger.warning(f"Login attempt for locked account: {credential}")
+            logger.warning("Login attempt for locked account: %s", credential)
             return None
 
         if not user.is_active:
-            logger.warning(f"Login attempt for inactive account: {credential}")
+            logger.warning("Login attempt for inactive account: %s", credential)
             return None
 
         if not user.verify_password(password):
@@ -64,7 +64,7 @@ class AuthService:
             if user.failed_login_attempts >= 5:
                 user.locked_until = datetime.now(UTC) + timedelta(minutes=30)
                 user.status = UserStatus.LOCKED.value
-                logger.warning(f"Account locked due to failed attempts: {credential}")
+                logger.warning("Account locked due to failed attempts: %s", credential)
 
             return None
 

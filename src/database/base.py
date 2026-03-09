@@ -11,8 +11,6 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
 
-    pass
-
 
 class TimestampMixin:
     """Mixin for adding created_at and updated_at timestamp columns."""

@@ -74,7 +74,7 @@ class UserService:
         )
 
         session.add(user)
-        logger.info(f"New user registered: {user.username} ({user.email})")
+        logger.info("New user registered: %s (%s)", user.username, user.email)
 
         return user
 
@@ -92,7 +92,7 @@ class UserService:
         """
         user.roles = [role.value for role in roles]
         user.updated_at = datetime.now(UTC)
-        logger.info(f"Roles assigned to user {user.username}: {list(roles)}")
+        logger.info("Roles assigned to user %s: %s", user.username, list(roles))
         return user
 
     @staticmethod
@@ -109,7 +109,7 @@ class UserService:
         """
         user.permissions = permissions
         user.updated_at = datetime.now(UTC)
-        logger.info(f"Permissions assigned to user {user.username}: {permissions}")
+        logger.info("Permissions assigned to user %s: %s", user.username, permissions)
         return user
 
     @staticmethod
@@ -117,7 +117,7 @@ class UserService:
         """Assign tenant access to a user."""
         user.tenant_ids = tenant_ids
         user.updated_at = datetime.now(UTC)
-        logger.info(f"Tenant access assigned to user {user.username}: {tenant_ids}")
+        logger.info("Tenant access assigned to user %s: %s", user.username, tenant_ids)
         return user
 
     @staticmethod
@@ -181,13 +181,11 @@ class UserService:
                     raise EmailAlreadyExists()
 
         for key, value in kwargs.items():
-            if value is not None and hasattr(user, key):
-                # Only allow full_name and email to be updated
-                if key in ("full_name", "email"):
-                    setattr(user, key, value)
+            if value is not None and hasattr(user, key) and key in ("full_name", "email"):
+                setattr(user, key, value)
 
         user.updated_at = datetime.now(UTC)
-        logger.info(f"User updated: {user.username}")
+        logger.info("User updated: %s", user.username)
         return user
 
     @staticmethod
@@ -214,7 +212,7 @@ class UserService:
         user.hashed_password = User.hash_password(new_password)
         user.updated_at = datetime.now(UTC)
 
-        logger.info(f"Password changed for user: {user.username}")
+        logger.info("Password changed for user: %s", user.username)
         return True
 
     @staticmethod
@@ -233,5 +231,5 @@ class UserService:
         user.is_logged_in = False
         user.updated_at = datetime.now(UTC)
 
-        logger.info(f"User deactivated: {user.username} (revoked_refresh_tokens={revoked_tokens})")
+        logger.info("User deactivated: %s (revoked_refresh_tokens=%s)", user.username, revoked_tokens)
         return True

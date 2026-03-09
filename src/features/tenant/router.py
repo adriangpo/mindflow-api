@@ -32,7 +32,7 @@ async def create_tenant(
     """Create a tenant (admin only)."""
     tenant = await TenantService.create_tenant(session, data)
     await session.commit()
-    logger.info(f"Tenant created by admin {current_user.username}: {tenant.slug}")
+    logger.info("Tenant created by admin %s: %s", current_user.username, tenant.slug)
     return TenantResponse.model_validate(tenant)
 
 
@@ -74,7 +74,7 @@ async def update_tenant(
 
     updated = await TenantService.update_tenant(session, tenant, data)
     await session.commit()
-    logger.info(f"Tenant updated by admin {current_user.username}: {tenant_id}")
+    logger.info("Tenant updated by admin %s: %s", current_user.username, tenant_id)
     return TenantResponse.model_validate(updated)
 
 
@@ -91,5 +91,5 @@ async def delete_tenant(
 
     await TenantService.delete_tenant(tenant)
     await session.commit()
-    logger.info(f"Tenant deactivated by admin {current_user.username}: {tenant_id}")
+    logger.info("Tenant deactivated by admin %s: %s", current_user.username, tenant_id)
     return {"message": "Tenant deactivated successfully"}

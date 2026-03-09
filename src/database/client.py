@@ -71,7 +71,7 @@ async def set_tenant_context(session: AsyncSession, tenant_id: UUID) -> None:
     """
     await session.execute(text(f"SET LOCAL app.current_tenant = '{tenant_id}'"))
     session.info["tenant_id"] = tenant_id
-    logger.debug(f"Tenant context set in session: {tenant_id}")
+    logger.debug("Tenant context set in session: %s", tenant_id)
 
 
 async def init_db() -> None:
@@ -85,7 +85,7 @@ async def init_db() -> None:
     global _engine, _async_session_factory
 
     try:
-        logger.info(f"Connecting to PostgreSQL at {settings.postgres_url.split('@')[-1]}")
+        logger.info("Connecting to PostgreSQL at %s", settings.postgres_url.split("@")[-1])
 
         # Create async engine
         _engine = create_async_engine(
@@ -113,7 +113,7 @@ async def init_db() -> None:
         logger.info("Database initialization complete")
 
     except Exception as e:
-        logger.error(f"Failed to initialize database: {e}")
+        logger.exception("Failed to initialize database: %s", e)
         raise
 
 

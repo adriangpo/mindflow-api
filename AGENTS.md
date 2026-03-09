@@ -314,10 +314,11 @@ Database migrations:
 
 Code quality and tests:
 
+- `make security-audit`
 - `make format`
 - `make lint`
 - `make type-check`
-- `make check-all` (runs format + lint + type-check)
+- `make check-all` (runs security-audit + format + lint + type-check)
 - `make test`
 - `make test-cov`
 
@@ -333,7 +334,7 @@ Execution model in this project:
 
 - `uv sync --all-extras` resolves dependencies and installs them into `.venv`.
 - `uv run <command>` runs commands inside that environment.
-- `Makefile` uses `uv run` for lint, type-check, pytest, and Alembic.
+- `Makefile` uses `uv run` for lint, type-check, pytest, pip-audit, and Alembic.
 
 Recommended flow:
 

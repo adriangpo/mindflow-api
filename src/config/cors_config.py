@@ -10,8 +10,6 @@ logger = logging.getLogger(__name__)
 class CORSConfigurationError(Exception):
     """Raised when CORS configuration is invalid or insecure."""
 
-    pass
-
 
 def normalize_origin(origin: str) -> str:
     """Normalize an origin URL by stripping whitespace and trailing slashes.
@@ -47,10 +45,7 @@ def normalize_origin(origin: str) -> str:
     except Exception as exc:
         raise CORSConfigurationError(f"Failed to parse origin: {origin}") from exc
 
-    # Remove trailing slashes
-    origin = origin.rstrip("/")
-
-    return origin
+    return origin.rstrip("/")
 
 
 def parse_comma_separated_list(value: str | list[str] | None) -> list[str]:
@@ -195,10 +190,10 @@ class CORSConfiguration:
                 "x-tenant-id",
             ]
 
-            logger.info(f"CORS configuration initialized for {self.environment} environment")
+            logger.info("CORS configuration initialized for %s environment", self.environment)
 
         except CORSConfigurationError as exc:
-            logger.error(f"CORS configuration error: {exc}")
+            logger.error("CORS configuration error: %s", exc)
             raise
 
     def _validate_security_rules(self) -> None:
@@ -221,7 +216,7 @@ class CORSConfiguration:
         # Rule 1 & 2: Credentials + wildcard = insecure
         if self.allow_credentials and has_wildcard:
             raise CORSConfigurationError(
-                "Cannot enable credentials with wildcard origins (*). " "Provide explicit allowed origins instead."
+                "Cannot enable credentials with wildcard origins (*). Provide explicit allowed origins instead."
             )
 
         # Rule 3: Warn about wildcard in staging/production
@@ -275,14 +270,21 @@ class CORSConfiguration:
         regex_display = "Enabled (pattern not logged for security)" if self.origin_regex else "Disabled"
 
         logger.info(
-            f"CORS Configuration:\n"
-            f"  Environment: {self.environment}\n"
-            f"  Origins: {origins_display}\n"
-            f"  Regex Pattern: {regex_display}\n"
-            f"  Methods: {', '.join(self.allow_methods)}\n"
-            f"  Headers: {', '.join(self.allow_headers)}\n"
-            f"  Credentials: {self.allow_credentials}\n"
-            f"  Preflight Max Age: {self.max_age}s"
+            "CORS Configuration:\n"
+            "  Environment: %s\n"
+            "  Origins: %s\n"
+            "  Regex Pattern: %s\n"
+            "  Methods: %s\n"
+            "  Headers: %s\n"
+            "  Credentials: %s\n"
+            "  Preflight Max Age: %ss",
+            self.environment,
+            origins_display,
+            regex_display,
+            ", ".join(self.allow_methods),
+            ", ".join(self.allow_headers),
+            self.allow_credentials,
+            self.max_age,
         )
 
     @staticmethod

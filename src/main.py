@@ -34,6 +34,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle rate limit exceeded errors."""
+    _ = request, exc
     return JSONResponse(
         status_code=429,
         content={"detail": "Rate limit exceeded"},
@@ -158,7 +159,7 @@ try:
         max_age=middleware_config["max_age"],
     )
 except CORSConfigurationError as exc:
-    logger.error(f"CORS configuration error: {exc}")
+    logger.error("CORS configuration error: %s", exc)
     raise
 
 # Add tenant middleware for multi-tenancy support
@@ -197,9 +198,11 @@ for router in tenant_routers:
 
 @app.get("/")
 async def root():
+    """Root endpoint used as a basic availability probe."""
     return {"message": "Mindflow API", "status": "running"}
 
 
 @app.get("/health")
 async def health():
+    """Health endpoint used by monitoring and orchestration checks."""
     return {"status": "healthy"}

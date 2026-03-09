@@ -2,7 +2,7 @@
 
 import logging
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.config.cors_config import CORSConfiguration, CORSConfigurationError
@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # PostgreSQL
     postgres_user: str = "mindflow"
-    postgres_password: str = "mindflow"
+    postgres_password: str = Field(default_factory=str)
     postgres_db: str = "mindflow"
     postgres_host: str = "localhost"
     postgres_port: int = 5432
@@ -119,17 +119,16 @@ class Settings(BaseSettings):
                     allow_origins=self.cors_allow_origins,
                     allow_credentials=self.cors_allow_credentials,
                 )
-            elif self.environment == "staging":
+            if self.environment == "staging":
                 return CORSConfiguration.for_staging(
                     allow_origins=self.cors_allow_origins or "",
                 )
-            else:  # production
-                return CORSConfiguration.for_production(
-                    allow_origins=self.cors_allow_origins or "",
-                    allow_origin_regex=self.cors_allow_origin_regex,
-                )
+            return CORSConfiguration.for_production(
+                allow_origins=self.cors_allow_origins or "",
+                allow_origin_regex=self.cors_allow_origin_regex,
+            )
         except CORSConfigurationError as exc:
-            logger.error(f"Failed to create CORS configuration: {exc}")
+            logger.error("Failed to create CORS configuration: %s", exc)
             raise
 
 

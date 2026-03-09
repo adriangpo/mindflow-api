@@ -27,6 +27,7 @@ dev = [
     "black>=24.1.0",
     "ruff>=0.2.0",
     "mypy>=1.8.0",
+    "pip-audit>=2.9.0",
     "aiosqlite>=0.19.0",
     "python-dotenv>=1.0.0",
 ]
@@ -76,28 +77,48 @@ select = [
     "UP",     # pyupgrade
     "B",      # flake8-bugbear
     "C",      # flake8-comprehensions
+    "A",      # flake8-builtins
+    "BLE",    # blind exception catches
+    "DTZ",    # timezone-aware datetime usage
+    "G",      # logging format rules
+    "ISC",    # implicit string concatenation
+    "PIE",    # miscellaneous unnecessary code patterns
+    "PT",     # pytest style rules
+    "PTH",    # pathlib usage recommendations
+    "RET",    # return statement consistency
+    "S",      # bandit security checks
+    "SIM",    # simplifiable control flow
+    "T20",    # prevent stray print/pprint
+    "ASYNC",  # async/await correctness checks
     "ARG",    # flake8-unused-arguments
     "RUF",    # Ruff-specific rules
 ]
 ignore = [
     "D100",   # Missing module docstring
     "D101",   # Missing class docstring
-    "D103",   # Missing function docstring
     "D104",   # Missing package docstring
-    "D106",   # Missing docstring in public nested class
     "D107",   # Missing docstring in __init__
     "D205",   # Blank line after docstring
     "D400",   # First line should end with period
     "D401",   # First line should be imperative
     "D415",   # First line should end with punctuation
-    "E501",   # Line too long (black handles this)
-    "ARG001", # Unused function argument (common in FastAPI dependencies)
     "B008",   # Do not perform function call in argument defaults (FastAPI pattern)
-    "B017",   # Assert blind exception (valid for pytest.raises patterns)
 ]
 
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["RUF059", "D102"]  # Allow unpacked fixture vars and missing docstrings in tests (we only need client sometimes)
+"tests/**/*.py" = [
+    "RUF059",  # unused-unpacked-variable: allow intentionally ignored unpacked values in tests/fixtures
+    "D102",    # undocumented-public-method: allow tests without method docstrings
+    "S101",    # assert: allow pytest-style assertions in tests
+    "S105",    # hardcoded-password-string: allow fake credentials in test data
+    "S106",    # hardcoded-password-func-arg: allow fake credentials passed to helper functions
+    "S107",    # hardcoded-password-default: allow fake/default credentials in test helpers
+    "S607",    # start-process-with-partial-path: allow subprocess invocations in integration-style tests
+    "S608",    # hardcoded-sql-expression: allow explicit SQL string assertions in tests
+]
 
 [tool.mypy]
 python_version = "3.14"

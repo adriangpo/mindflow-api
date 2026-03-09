@@ -103,7 +103,7 @@ def event_loop() -> Generator[asyncio.AbstractEventLoop]:
 # Tenant Management
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def tenant_id() -> UUID:
     """Create a unique test tenant ID for each test.
 
@@ -153,6 +153,8 @@ async def db_engine(event_loop, apply_test_migrations) -> AsyncGenerator[AsyncEn
     Schema setup is handled by Alembic in apply_test_migrations.
     Individual tests use transactions for isolation.
     """
+    _ = event_loop, apply_test_migrations
+
     # Use test database URL
     test_db_url = os.environ["POSTGRES_URL"]
 
@@ -311,6 +313,7 @@ async def make_user(session: AsyncSession, tenant_id: UUID):
     The user is automatically added to the database and will be rolled back
     after the test completes.
     """
+    _ = tenant_id
     counter = 0  # Counter for unique email/username generation
 
     async def _factory(

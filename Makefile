@@ -1,4 +1,4 @@
-.PHONY: help lint format type-check test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down docker-test-up docker-test-down docker-test-reset
+.PHONY: help lint format type-check security-audit test test-cov clean install check-all db-upgrade db-downgrade db-revision db-migrate docker-start docker-up docker-down docker-test-up docker-test-down docker-test-reset
 UV_RUN := uv run
 ENVIRONMENT ?= development
 CLEAR_VOLUMES ?= false
@@ -9,6 +9,7 @@ BLACK := $(UV_RUN) black
 RUFF := $(UV_RUN) ruff
 MYPY := $(UV_RUN) mypy
 ALEMBIC := $(UV_RUN) alembic
+PIP_AUDIT := $(UV_RUN) pip-audit
 
 help:
 	@echo "Mindflow - Development Commands"
@@ -40,6 +41,7 @@ help:
 	@echo "  make db-migrate       Shortcut for db-revision + db-upgrade"
 	@echo ""
 	@echo "Code Quality:"
+	@echo "  make security-audit   Run dependency vulnerability audit with pip-audit"
 	@echo "  make format           Format code with black"
 	@echo "  make lint             Run all linting checks (ruff + black --check)"
 	@echo "  make type-check       Run type checking with mypy"
@@ -138,6 +140,11 @@ db-revision:
 db-migrate: db-revision db-upgrade
 	@echo "✓ Migration created and applied"
 
+security-audit:
+	@echo "Running dependency vulnerability audit..."
+	$(PIP_AUDIT)
+	@echo "✓ Dependency audit passed"
+
 format:
 	@echo "Formatting code with black..."
 	$(BLACK) src tests
@@ -161,7 +168,7 @@ type-check:
 	$(MYPY) src
 	@echo "✓ Type checking passed"
 
-check-all: format lint type-check
+check-all: security-audit format lint type-check
 	@echo "✓ All checks passed!"
 
 test: docker-test-up
