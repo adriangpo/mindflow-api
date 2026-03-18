@@ -64,6 +64,7 @@ async def _create_appointment(session, *, user_id: int, patient_id: int):
         modality="online",
         status="scheduled",
         payment_status="pending",
+        charge_amount=Decimal("200.00"),
     )
     session.add(appointment)
     await session.flush()

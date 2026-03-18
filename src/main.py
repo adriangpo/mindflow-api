@@ -16,6 +16,7 @@ from src.config.cors_config import CORSConfigurationError
 from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
+from src.features.finance.router import router as finance_router
 from src.features.medical_record.router import router as medical_record_router
 from src.features.patient.router import router as patient_router
 from src.features.schedule.router import router as schedule_router
@@ -178,6 +179,7 @@ public_routers: list[APIRouter] = [
 
 # Tenant-protected routers - require X-Tenant-ID header
 tenant_routers: list[APIRouter] = [
+    finance_router,
     schedule_configuration_router,
     schedule_router,
     patient_router,

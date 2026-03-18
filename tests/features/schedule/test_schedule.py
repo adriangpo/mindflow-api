@@ -8,7 +8,7 @@ import pytest
 from fastapi import status
 
 from src.features.auth.dependencies import get_current_active_user, get_current_user
-from src.features.patient.schemas import PatientCreateRequest
+from src.features.patient.schemas import PatientCreateRequest, PatientQuickCreateRequest
 from src.features.patient.service import PatientService
 from src.features.schedule.exceptions import (
     ScheduleInvalidStatusTransition,
@@ -108,7 +108,29 @@ class TestScheduleService:
 
         assert appointment.status == AppointmentStatus.SCHEDULED.value
         assert appointment.payment_status == PaymentStatus.PENDING.value
+        assert appointment.charge_amount == Decimal("200.00")
+        assert appointment.paid_at is None
         assert appointment.ends_at == starts_at + timedelta(minutes=50)
+
+    async def test_create_paid_appointment_sets_paid_at(self, session, make_user):
+        user = await make_user()
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=patient.id,
+                starts_at=datetime.now(UTC) + timedelta(days=1),
+                modality=AppointmentModality.IN_PERSON,
+                payment_status=PaymentStatus.PAID,
+            ),
+        )
+        await session.commit()
+
+        assert appointment.charge_amount == Decimal("200.00")
+        assert appointment.paid_at is not None
 
     async def test_create_appointment_blocks_occupied_slot(self, session, make_user):
         user = await make_user()
@@ -196,6 +218,89 @@ class TestScheduleService:
 
         assert updated.status == AppointmentStatus.CANCELED.value
         assert updated.payment_status == PaymentStatus.NOT_CHARGED.value
+        assert updated.paid_at is None
+
+    async def test_payment_status_updates_manage_paid_at(self, session, make_user):
+        user = await make_user()
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=patient.id,
+                starts_at=datetime.now(UTC) + timedelta(days=1),
+                modality=AppointmentModality.IN_PERSON,
+            ),
+        )
+        await session.flush()
+
+        updated = await ScheduleService.update_payment_status(
+            session,
+            user.id,
+            appointment,
+            payment_status=PaymentStatus.PAID,
+            reason="received payment",
+        )
+        paid_at = updated.paid_at
+        assert paid_at is not None
+
+        reverted = await ScheduleService.update_payment_status(
+            session,
+            user.id,
+            appointment,
+            payment_status=PaymentStatus.PENDING,
+            reason="reopened invoice",
+        )
+        await session.commit()
+
+        assert reverted.paid_at is None
+
+    async def test_patient_session_price_change_does_not_mutate_existing_charge_amount(self, session, make_user):
+        user = await make_user()
+        patient = await _create_patient(session)
+        await _create_schedule_configuration(session, user.id)
+
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=patient.id,
+                starts_at=datetime.now(UTC) + timedelta(days=1),
+                modality=AppointmentModality.IN_PERSON,
+            ),
+        )
+        await session.flush()
+
+        patient.session_price = Decimal("350.00")
+        await session.commit()
+        await session.refresh(appointment)
+
+        assert appointment.charge_amount == Decimal("200.00")
+
+    async def test_quick_registered_patient_without_amount_snapshots_zero(self, session, make_user):
+        user = await make_user()
+        quick_patient = await PatientService.create_quick_patient(
+            session,
+            PatientQuickCreateRequest(full_name="Paciente Rapido"),
+        )
+        await _create_schedule_configuration(session, user.id)
+
+        appointment = await ScheduleService.create_appointment(
+            session,
+            user.id,
+            ScheduleAppointmentCreateRequest(
+                patient_id=quick_patient.id,
+                starts_at=datetime.now(UTC) + timedelta(days=1),
+                modality=AppointmentModality.ONLINE,
+                payment_status=PaymentStatus.PAID,
+            ),
+        )
+        await session.commit()
+
+        assert appointment.charge_amount == Decimal("0.00")
+        assert appointment.paid_at is not None
 
     async def test_get_available_slots_excludes_occupied_time(self, session, make_user):
         user = await make_user()

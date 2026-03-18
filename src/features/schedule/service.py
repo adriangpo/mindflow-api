@@ -39,6 +39,8 @@ from .schemas import (
     ScheduleCalendarView,
 )
 
+ZERO_AMOUNT = Decimal("0.00")
+
 _STATUS_TRANSITIONS: dict[AppointmentStatus, set[AppointmentStatus]] = {
     AppointmentStatus.SCHEDULED: {
         AppointmentStatus.CANCELED,
@@ -109,6 +111,33 @@ class ScheduleService:
         if not patient.is_active:
             raise SchedulePatientInactive()
         return patient
+
+    @staticmethod
+    def _resolve_charge_amount(
+        patient: Patient,
+        *,
+        price_override: Decimal | None,
+    ) -> Decimal:
+        """Resolve the financial amount snapshot for an appointment."""
+        if price_override is not None:
+            return price_override
+        if patient.session_price is not None:
+            return patient.session_price
+        return ZERO_AMOUNT
+
+    @staticmethod
+    def _sync_paid_at(appointment: ScheduleAppointment, *, previous_payment_status: str) -> None:
+        """Keep paid_at aligned with payment status transitions."""
+        if (
+            appointment.payment_status == PaymentStatus.PAID.value
+            and previous_payment_status != PaymentStatus.PAID.value
+        ):
+            appointment.paid_at = datetime.now(UTC)
+        elif (
+            appointment.payment_status != PaymentStatus.PAID.value
+            and previous_payment_status == PaymentStatus.PAID.value
+        ):
+            appointment.paid_at = None
 
     @staticmethod
     def _resolve_range(
@@ -257,6 +286,8 @@ class ScheduleService:
             "payment_status": appointment.payment_status,
             "notes": appointment.notes,
             "price_override": appointment.price_override,
+            "charge_amount": appointment.charge_amount,
+            "paid_at": appointment.paid_at,
             "allow_canceled_report": appointment.allow_canceled_report,
             "out_of_schedule_warning": appointment.out_of_schedule_warning,
             "out_of_schedule_warning_reason": appointment.out_of_schedule_warning_reason,
@@ -282,6 +313,34 @@ class ScheduleService:
         return starts_at, ends_at, time_changed
 
     @staticmethod
+    def _should_refresh_charge_amount(*, previous_payment_status: str, next_payment_status: str) -> bool:
+        """Return whether the appointment finance snapshot is still mutable."""
+        return previous_payment_status != PaymentStatus.PAID.value or next_payment_status != PaymentStatus.PAID.value
+
+    @staticmethod
+    def _refresh_charge_amount_from_updates(
+        appointment: ScheduleAppointment,
+        data: ScheduleAppointmentUpdateRequest,
+        *,
+        target_patient: Patient | None,
+        previous_payment_status: str,
+        next_payment_status: str,
+    ) -> None:
+        """Refresh charge_amount when mutable finance inputs change."""
+        if not ScheduleService._should_refresh_charge_amount(
+            previous_payment_status=previous_payment_status,
+            next_payment_status=next_payment_status,
+        ):
+            return
+
+        if data.price_override is not None:
+            appointment.charge_amount = data.price_override
+            return
+
+        if data.patient_id is not None and appointment.price_override is None and target_patient is not None:
+            appointment.charge_amount = target_patient.session_price or ZERO_AMOUNT
+
+    @staticmethod
     def _apply_appointment_updates(
         appointment: ScheduleAppointment,
         data: ScheduleAppointmentUpdateRequest,
@@ -290,8 +349,14 @@ class ScheduleService:
         ends_at: datetime,
         time_changed: bool,
         configuration: ScheduleConfiguration,
+        target_patient: Patient | None,
     ) -> None:
         """Apply mutable update fields to an appointment instance."""
+        previous_payment_status = appointment.payment_status
+        next_payment_status = (
+            data.payment_status.value if data.payment_status is not None else appointment.payment_status
+        )
+
         if data.patient_id is not None:
             appointment.patient_id = data.patient_id
 
@@ -305,9 +370,18 @@ class ScheduleService:
         if data.price_override is not None:
             appointment.price_override = data.price_override
         if data.payment_status is not None:
-            appointment.payment_status = data.payment_status.value
+            appointment.payment_status = next_payment_status
         if data.allow_canceled_report is not None:
             appointment.allow_canceled_report = data.allow_canceled_report
+
+        ScheduleService._refresh_charge_amount_from_updates(
+            appointment,
+            data,
+            target_patient=target_patient,
+            previous_payment_status=previous_payment_status,
+            next_payment_status=next_payment_status,
+        )
+        ScheduleService._sync_paid_at(appointment, previous_payment_status=previous_payment_status)
 
         if not time_changed:
             return
@@ -328,7 +402,9 @@ class ScheduleService:
         """Resolve history event type for appointment update operations."""
         if time_changed:
             return AppointmentHistoryEvent.RESCHEDULED
-        if set(change_summary.keys()) == {"payment_status"} and previous_payment_status != current_payment_status:
+        if set(change_summary.keys()).issubset({"payment_status", "paid_at"}) and (
+            previous_payment_status != current_payment_status
+        ):
             return AppointmentHistoryEvent.PAYMENT_STATUS_CHANGED
         return AppointmentHistoryEvent.UPDATED
 
@@ -340,7 +416,7 @@ class ScheduleService:
     ) -> ScheduleAppointment:
         """Create an appointment with slot validation and history tracking."""
         configuration = await ScheduleService._require_schedule_configuration(session)
-        await ScheduleService._require_patient(session, data.patient_id)
+        patient = await ScheduleService._require_patient(session, data.patient_id)
 
         starts_at = data.starts_at
         ends_at = data.ends_at or starts_at + timedelta(minutes=configuration.appointment_duration_minutes)
@@ -368,6 +444,8 @@ class ScheduleService:
             payment_status=data.payment_status.value,
             notes=data.notes,
             price_override=data.price_override,
+            charge_amount=ScheduleService._resolve_charge_amount(patient, price_override=data.price_override),
+            paid_at=datetime.now(UTC) if data.payment_status == PaymentStatus.PAID else None,
             allow_canceled_report=data.allow_canceled_report,
             out_of_schedule_warning=warning_reason is not None,
             out_of_schedule_warning_reason=warning_reason,
@@ -521,9 +599,10 @@ class ScheduleService:
     ) -> ScheduleAppointment:
         """Update appointment data and auto-handle reschedule semantics."""
         configuration = await ScheduleService._require_schedule_configuration(session)
+        target_patient: Patient | None = None
 
         if data.patient_id is not None and data.patient_id != appointment.patient_id:
-            await ScheduleService._require_patient(session, data.patient_id)
+            target_patient = await ScheduleService._require_patient(session, data.patient_id)
 
         starts_at, ends_at, time_changed = ScheduleService._resolve_updated_window(appointment, data)
 
@@ -556,6 +635,7 @@ class ScheduleService:
             ends_at=ends_at,
             time_changed=time_changed,
             configuration=configuration,
+            target_patient=target_patient,
         )
         current_values = ScheduleService._snapshot_appointment(appointment)
 
@@ -608,11 +688,14 @@ class ScheduleService:
 
         previous_status = appointment.status
         previous_payment_status = appointment.payment_status
+        previous_paid_at = appointment.paid_at
 
         appointment.status = target_status.value
 
         if target_status == AppointmentStatus.CANCELED and data.mark_as_not_charged:
             appointment.payment_status = PaymentStatus.NOT_CHARGED.value
+
+        ScheduleService._sync_paid_at(appointment, previous_payment_status=previous_payment_status)
 
         await session.flush()
 
@@ -627,6 +710,11 @@ class ScheduleService:
             change_summary["payment_status"] = {
                 "from": previous_payment_status,
                 "to": appointment.payment_status,
+            }
+        if previous_paid_at != appointment.paid_at:
+            change_summary["paid_at"] = {
+                "from": _jsonable(previous_paid_at),
+                "to": _jsonable(appointment.paid_at),
             }
 
         await ScheduleService._add_history_event(
@@ -659,9 +747,23 @@ class ScheduleService:
             return appointment
 
         previous_payment_status = appointment.payment_status
+        previous_paid_at = appointment.paid_at
         appointment.payment_status = payment_status.value
+        ScheduleService._sync_paid_at(appointment, previous_payment_status=previous_payment_status)
 
         await session.flush()
+
+        change_summary: dict[str, dict[str, Any]] = {
+            "payment_status": {
+                "from": previous_payment_status,
+                "to": appointment.payment_status,
+            }
+        }
+        if previous_paid_at != appointment.paid_at:
+            change_summary["paid_at"] = {
+                "from": _jsonable(previous_paid_at),
+                "to": _jsonable(appointment.paid_at),
+            }
 
         await ScheduleService._add_history_event(
             session,
@@ -675,12 +777,7 @@ class ScheduleService:
             to_payment_status=appointment.payment_status,
             from_starts_at=appointment.starts_at,
             to_starts_at=appointment.starts_at,
-            change_summary={
-                "payment_status": {
-                    "from": previous_payment_status,
-                    "to": appointment.payment_status,
-                }
-            },
+            change_summary=change_summary,
         )
 
         return appointment

@@ -190,6 +190,8 @@ class ScheduleAppointmentResponse(BaseModel):
     payment_status: PaymentStatus
     notes: str | None
     price_override: Decimal | None
+    charge_amount: Decimal
+    paid_at: datetime | None
     allow_canceled_report: bool
     out_of_schedule_warning: bool
     out_of_schedule_warning_reason: str | None

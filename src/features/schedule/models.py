@@ -47,6 +47,13 @@ class ScheduleAppointment(Base, TenantMixin, TimestampMixin, AuditableMixin):
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_override: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    charge_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2),
+        nullable=False,
+        default=Decimal("0.00"),
+        server_default="0.00",
+    )
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
     allow_canceled_report: Mapped[bool] = mapped_column(
         Boolean,

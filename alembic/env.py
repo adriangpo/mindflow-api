@@ -19,6 +19,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.config.settings import settings
 from src.database.base import Base
 from src.features.auth import models as auth_models
+from src.features.finance import models as finance_models
 from src.features.medical_record import models as medical_record_models
 from src.features.patient import models as patient_models
 from src.features.schedule import models as schedule_models
@@ -31,6 +32,7 @@ from src.shared.audit import audit as audit_models
 # These references keep imports explicit and prevent optimization removal.
 _ = (
     auth_models,
+    finance_models,
     medical_record_models,
     patient_models,
     schedule_models,

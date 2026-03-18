@@ -83,6 +83,8 @@ erDiagram
         string modality
         string status
         string payment_status
+        decimal charge_amount
+        datetime paid_at
         bool is_deleted
         datetime deleted_at
         string deleted_reason
@@ -160,7 +162,7 @@ erDiagram
 
 ### Response DTOs
 
-- `ScheduleAppointmentResponse`: full appointment state including deletion and warning fields
+- `ScheduleAppointmentResponse`: full appointment state including deletion, warning, finance snapshot, and payment timestamp fields
 - `ScheduleAppointmentDetailResponse`: base appointment + `history[]`
 - `ScheduleAppointmentListResponse`: paginated list envelope
 - `ScheduleDefaultsResponse`: tenant schedule config + default status/payment/modality values
@@ -187,6 +189,8 @@ Business rules:
 - tenant must have schedule configuration (`409` otherwise)
 - patient must exist in same tenant and be active
 - `ends_at` defaults to `starts_at + config.appointment_duration_minutes` when omitted
+- `charge_amount` snapshots the effective appointment amount using `price_override`, otherwise patient `session_price`, otherwise `0.00`
+- `paid_at` is set immediately when an appointment is created with `payment_status=paid`
 - final window must satisfy `ends_at > starts_at`
 - `starts_at` must be in future (`> now UTC`)
 - overlapping non-deleted, non-canceled appointments are rejected (`409`)
@@ -284,6 +288,10 @@ Behavior:
   - rejects reschedule from terminal statuses (`canceled`, `completed`)
   - auto-sets status to `rescheduled`
   - recalculates out-of-schedule warning fields
+- if appointment amount is still mutable:
+  - changing `price_override` refreshes `charge_amount`
+  - changing patient without an override refreshes `charge_amount` from the new patient `session_price` or `0.00`
+- payment status transitions also keep `paid_at` synchronized (`paid` sets timestamp, non-`paid` clears it)
 - no-op updates (no changed fields) return unchanged appointment and no new history event
 - event type:
   - `rescheduled` if time changed
@@ -317,6 +325,7 @@ Allowed transitions:
 Additional rule:
 
 - if target is `canceled` and `mark_as_not_charged=true`, payment status becomes `not_charged`
+- when that change moves payment away from `paid`, `paid_at` is cleared
 
 Side effects:
 
@@ -340,7 +349,7 @@ Updates payment status.
 Behavior:
 
 - if new value equals current value: no change and no history event
-- otherwise updates payment status and writes `payment_status_changed` history event
+- otherwise updates payment status, synchronizes `paid_at`, and writes `payment_status_changed` history event
 
 Success:
 
@@ -446,6 +455,8 @@ Errors:
 - validates future window and no overlap conflicts
 - computes out-of-schedule warning flags
 - creates appointment with `status=scheduled`
+- snapshots `charge_amount` from override, patient price, or `0.00`
+- sets `paid_at` when created directly as paid
 - writes `created` history event
 
 ### `list_appointments(session, pagination, ...)`
@@ -472,6 +483,8 @@ Errors:
 - rejects invalid/past windows and overlap conflicts
 - blocks reschedule from terminal statuses (`canceled`, `completed`)
 - when datetime changes, sets `status=rescheduled` and recalculates warning fields
+- refreshes `charge_amount` only while the amount is still mutable
+- synchronizes `paid_at` with payment status changes
 - skips history write for no-op updates
 - writes `rescheduled`, `payment_status_changed`, or `updated` history event
 
@@ -479,12 +492,13 @@ Errors:
 
 - validates transitions via `_STATUS_TRANSITIONS`
 - optional `mark_as_not_charged=true` sets payment to `not_charged` on cancel
+- clears `paid_at` when the payment state leaves `paid`
 - writes `status_changed` history event
 
 ### `update_payment_status(session, user_id, appointment, payment_status, reason)`
 
 - no-op when status is unchanged
-- otherwise updates payment status and writes `payment_status_changed` history event
+- otherwise updates payment status, synchronizes `paid_at`, and writes `payment_status_changed` history event
 
 ### `delete_appointment(session, user_id, appointment, data)`
 
@@ -529,6 +543,8 @@ Dependency-originated errors:
 - update with datetime change enforces status mutation to `rescheduled` automatically.
 - canceled appointments are excluded from slot-conflict checks and availability occupancy checks.
 - soft-deleted appointments are excluded from list/detail by default and from slot-conflict checks.
+- every appointment persists a finance snapshot in `charge_amount`; patient price changes later do not retroactively rewrite existing appointments.
+- finance reports derive automatic consultation revenue from paid, non-deleted appointments using `charge_amount` + `paid_at`.
 - both appointment model and history model are tenant-scoped; operations always use `session.info["tenant_id"]`.
 
 Transaction behavior:
@@ -541,5 +557,6 @@ Transaction behavior:
 - Always send `X-Tenant-ID` and bearer token.
 - Handle `409` as business-rule conflicts (slot unavailable, invalid transitions, missing config, inactive patient).
 - Use `GET /appointments/{id}` to render timeline; events already come sorted newest-first.
+- Read `charge_amount` and `paid_at` from appointment responses when rendering billing state.
 - For custom list view, always send both `start_date` and `end_date`.
 - To show deleted records in admin/support screens, set `include_deleted=true` on list/detail.
