@@ -1,6 +1,7 @@
 """Application settings and configuration."""
 
 import logging
+from pathlib import Path
 
 from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
     log_format: str = "json"
+
+    # Local file storage
+    storage_root: Path = Path("storage")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -130,6 +134,17 @@ class Settings(BaseSettings):
         except CORSConfigurationError as exc:
             logger.error("Failed to create CORS configuration: %s", exc)
             raise
+
+    @field_validator("storage_root", mode="before")
+    @classmethod
+    def validate_storage_root(cls, v: str | Path) -> Path:
+        """Normalize and validate the local storage root path."""
+        storage_root = v if isinstance(v, Path) else Path(str(v).strip())
+
+        if not str(storage_root):
+            raise ValueError("storage_root cannot be empty")
+
+        return storage_root
 
 
 settings = Settings()  # type: ignore[call-arg]

@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from src.config.settings import settings
 from src.database import client as db_module
 from src.database.client import set_tenant_context
 from src.database.dependencies import get_db_session, get_tenant_db_session
@@ -254,6 +255,14 @@ def mock_db_initialization():
     # Restore original functions
     db_module.init_db = original_init_db
     db_module.close_db = original_close_db
+
+
+@pytest.fixture(autouse=True)
+def isolated_storage_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Isolate runtime file storage per test and keep the repository clean."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setattr(settings, "storage_root", storage_root)
+    return storage_root
 
 
 # FastAPI Client & Dependency Overrides

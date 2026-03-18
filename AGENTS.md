@@ -27,7 +27,7 @@ Core runtime composition (`src/main.py`):
 - Middleware: SlowAPI, admin docs middleware, CORS, tenant header extraction, audit context middleware
 - Router groups:
 - Public routers: `auth`, `user`, `tenant`
-- Tenant-protected routers: `schedule_config`, `schedule`, `patient`
+- Tenant-protected routers: `schedule_config`, `schedule`, `patient`, `medical_record`
 - Lifespan hooks initialize and close database resources
 
 Layer responsibilities:
@@ -96,6 +96,7 @@ Current feature modules in `src/features/`:
 - `schedule_config`
 - `patient`
 - `schedule`
+- `medical_record`
 
 Standard file contract per feature:
 
@@ -121,6 +122,7 @@ Ownership boundaries:
 - `src/database/`: engine/session lifecycle and base mixins
 - `src/features/<feature>/`: feature behavior
 - `src/shared/`: reusable cross-feature primitives
+- `storage/`: runtime-generated local file storage
 - `alembic/`: schema migration history
 - `tests/`: behavior verification
 - `docs/`: documentation (feature docs default to `docs/features/`)
@@ -138,11 +140,14 @@ Shared modules currently used by features:
 - `src/shared/audit/audit.py`
 - `src/shared/audit/audit_middleware.py`
 - `src/shared/middlewares/docs_middleware.py`
+- `src/shared/storage/backends.py`
 
 Usage rules:
 
 - Reuse shared validators and dependencies before adding new helpers.
 - Keep auth-specific logic centralized in `src/features/auth/`.
+- Local file persistence must go through a segregated storage backend abstraction under `src/shared/storage/`; do not couple features directly to raw filesystem paths when the behavior may later move to S3-compatible storage.
+- Medical record PDF exports are stored under `storage/medical-records/exports/<tenant-id>/...`; create directories at runtime when absent.
 
 Audit mixin implementation details:
 
@@ -205,6 +210,7 @@ Tenant-scoped models (`TenantMixin`):
 - `schedule_configurations`
 - `schedule_appointments`
 - `schedule_appointment_history`
+- `medical_records`
 
 Global models:
 
@@ -220,7 +226,7 @@ Isolation layers:
 3. `require_tenant_membership` validates user assignment
 4. `get_tenant_db_session` sets `SET LOCAL app.current_tenant`
 5. Services apply tenant filters in queries
-6. RLS is enabled for `schedule_configurations`, `patients`, `schedule_appointments`, `schedule_appointment_history`
+6. RLS is enabled for `schedule_configurations`, `patients`, `schedule_appointments`, `schedule_appointment_history`, `medical_records`
 
 Mandatory rule for tenant-scoped models:
 
@@ -283,6 +289,7 @@ Current migration chain:
 7. patients (+ RLS)
 8. schedule_config tenant FK (+ RLS backfill enforcement)
 9. schedule appointments + history (+ RLS)
+10. medical records (+ RLS)
 
 ---
 

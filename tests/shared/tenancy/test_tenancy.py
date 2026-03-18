@@ -91,13 +91,14 @@ class TestTenantRLSPolicies:
                       'schedule_configurations',
                       'patients',
                       'schedule_appointments',
-                      'schedule_appointment_history'
+                      'schedule_appointment_history',
+                      'medical_records'
                   )
                 ORDER BY c.relname
                 """))
         rows = result.mappings().all()
 
-        assert len(rows) == 4
+        assert len(rows) == 5
         assert all(row["rls_enabled"] for row in rows)
         assert all(row["has_policy"] for row in rows)
 

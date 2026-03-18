@@ -92,6 +92,7 @@ tmp/
 # Logs
 *.log
 logs/
+storage/
 
 # Distribution
 build/
