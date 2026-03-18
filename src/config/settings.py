@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # Environment-specific settings
     debug: bool = False
     environment: str  # development, staging, production
+    testing: bool = False
 
     # PostgreSQL
     postgres_user: str = "mindflow"
@@ -59,6 +60,15 @@ class Settings(BaseSettings):
     # Local file storage
     storage_root: Path = Path("storage")
 
+    # Notifications
+    notification_provider: str = "auto"
+    notification_background_dispatch_enabled: bool = True
+    notification_dispatch_interval_seconds: int = 60
+    notification_default_country_code: str = "+55"
+    twilio_account_sid: str = ""
+    twilio_auth_token: str = ""
+    twilio_whatsapp_from_number: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -90,6 +100,25 @@ class Settings(BaseSettings):
             return False
 
         raise ValueError(f"Invalid debug value: {v}")
+
+    @field_validator("notification_provider", mode="before")
+    @classmethod
+    def validate_notification_provider(cls, v: str) -> str:
+        """Validate outbound notification provider selection."""
+        valid_providers = {"auto", "stub", "twilio"}
+        provider = str(v).strip().lower()
+        if provider not in valid_providers:
+            raise ValueError(f"notification_provider must be one of {valid_providers}, got {provider}")
+        return provider
+
+    @field_validator("notification_default_country_code", mode="before")
+    @classmethod
+    def validate_notification_default_country_code(cls, v: str) -> str:
+        """Validate and normalize the default country code used for phone formatting."""
+        country_code = str(v).strip()
+        if not country_code.startswith("+") or not country_code[1:].isdigit():
+            raise ValueError("notification_default_country_code must be in +<digits> format")
+        return country_code
 
     @field_validator("postgres_url", mode="before")
     @classmethod

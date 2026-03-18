@@ -26,6 +26,13 @@ Database configuration options:
 
 - `POSTGRES_URL` (full connection string override)
 - or `POSTGRES_USER` + `POSTGRES_PASSWORD` + `POSTGRES_DB` + `POSTGRES_HOST` + `POSTGRES_PORT`
+- `NOTIFICATION_PROVIDER` (`auto`, `stub`, or `twilio`)
+- `NOTIFICATION_BACKGROUND_DISPATCH_ENABLED` (default `true`)
+- `NOTIFICATION_DISPATCH_INTERVAL_SECONDS` (default `60`)
+- `NOTIFICATION_DEFAULT_COUNTRY_CODE` (default `+55`, used to format stored local phone numbers)
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_WHATSAPP_FROM_NUMBER`
 
 For Docker runs, API container uses `POSTGRES_URL` when provided; otherwise it builds one from `POSTGRES_USER/PASSWORD/HOST/DB` using internal PostgreSQL port `5432`.
 Default `.env.example` sets `POSTGRES_HOST=postgres` for Docker networking.
@@ -63,10 +70,20 @@ Skip this step when using `make docker-start` because API is already running in 
   - `development`: public
   - non-development environments: admin-only
 
+### Twilio WhatsApp
+
+Notification delivery defaults to `auto` mode:
+
+- if `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_WHATSAPP_FROM_NUMBER` are set, outbound WhatsApp uses Twilio
+- otherwise the API stays on the internal stub backend and only logs notifications
+
+Stored patient/profile phone numbers are local digits in this project, so outbound delivery prefixes them with `NOTIFICATION_DEFAULT_COUNTRY_CODE` before sending to Twilio.
+For Twilio sandbox testing, use the Twilio sandbox sender number and join the sandbox from the recipient device first.
+
 ## Architecture Summary
 
 - App entrypoint: `src/main.py`
-- Feature modules: `src/features/{auth,user,tenant,schedule_config,patient,schedule}`
+- Feature modules: `src/features/{auth,user,tenant,schedule_config,patient,schedule,finance,medical_record,notification}`
 - Shared modules: `src/shared/*`
 - Database migrations: `alembic/versions/*`
 
@@ -147,3 +164,6 @@ Implementation-focused docs are under `docs/features/`:
 - `docs/features/schedule-config.md`
 - `docs/features/patient.md`
 - `docs/features/schedule.md`
+- `docs/features/finance.md`
+- `docs/features/medical-record.md`
+- `docs/features/notification.md`

@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.features.notification.service import NotificationService
 from src.features.patient.models import Patient
 from src.features.schedule_config.models import ScheduleConfiguration
 from src.shared.pagination.pagination import PaginationParams
@@ -468,6 +469,8 @@ class ScheduleService:
             },
         )
 
+        await NotificationService.handle_appointment_created(session, appointment)
+
         return appointment
 
     @staticmethod
@@ -666,6 +669,9 @@ class ScheduleService:
             change_summary=change_summary,
         )
 
+        if event_type in {AppointmentHistoryEvent.UPDATED, AppointmentHistoryEvent.RESCHEDULED}:
+            await NotificationService.handle_appointment_updated(session, appointment)
+
         return appointment
 
     @staticmethod
@@ -731,6 +737,11 @@ class ScheduleService:
             to_starts_at=appointment.starts_at,
             change_summary=change_summary,
         )
+
+        if target_status == AppointmentStatus.CANCELED:
+            await NotificationService.handle_appointment_canceled(session, appointment)
+        elif target_status in {AppointmentStatus.NO_SHOW, AppointmentStatus.COMPLETED}:
+            await NotificationService.clear_appointment_notifications(session, appointment.id)
 
         return appointment
 
@@ -826,6 +837,8 @@ class ScheduleService:
                 },
             },
         )
+
+        await NotificationService.clear_appointment_notifications(session, appointment.id)
 
         return appointment
 

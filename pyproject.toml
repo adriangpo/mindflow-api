@@ -16,6 +16,7 @@ dependencies = [
     "email-validator>=2.1.0",
     "asgi-lifespan>=2.1.0",
     "slowapi>=0.1.8",
+    "twilio>=9.0.0",
 ]
 
 [project.optional-dependencies]
@@ -138,6 +139,7 @@ module = [
     "sqlalchemy.*",
     "alembic.*",
     "aiosqlite.*",
+    "twilio.*",
 ]
 ignore_missing_imports = true
 

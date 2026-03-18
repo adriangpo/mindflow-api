@@ -27,8 +27,8 @@ Core runtime composition (`src/main.py`):
 - Middleware: SlowAPI, admin docs middleware, CORS, tenant header extraction, audit context middleware
 - Router groups:
 - Public routers: `auth`, `user`, `tenant`
-- Tenant-protected routers: `schedule_config`, `schedule`, `patient`, `medical_record`
-- Lifespan hooks initialize and close database resources
+- Tenant-protected routers: `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`
+- Lifespan hooks initialize database resources, optionally start the notification dispatch loop, and close resources on shutdown
 
 Layer responsibilities:
 
@@ -93,6 +93,8 @@ Current feature modules in `src/features/`:
 - `auth`
 - `user`
 - `tenant`
+- `finance`
+- `notification`
 - `schedule_config`
 - `patient`
 - `schedule`
@@ -206,6 +208,11 @@ Tenancy is shared-table with tenant scoping.
 
 Tenant-scoped models (`TenantMixin`):
 
+- `financial_entries`
+- `notification_settings`
+- `notification_patient_preferences`
+- `notification_user_profiles`
+- `notification_messages`
 - `patients`
 - `schedule_configurations`
 - `schedule_appointments`
@@ -226,7 +233,7 @@ Isolation layers:
 3. `require_tenant_membership` validates user assignment
 4. `get_tenant_db_session` sets `SET LOCAL app.current_tenant`
 5. Services apply tenant filters in queries
-6. RLS is enabled for `schedule_configurations`, `patients`, `schedule_appointments`, `schedule_appointment_history`, `medical_records`
+6. RLS is enabled for `financial_entries`, `notification_settings`, `notification_patient_preferences`, `notification_user_profiles`, `notification_messages`, `schedule_configurations`, `patients`, `schedule_appointments`, `schedule_appointment_history`, `medical_records`
 
 Mandatory rule for tenant-scoped models:
 
@@ -290,6 +297,8 @@ Current migration chain:
 8. schedule_config tenant FK (+ RLS backfill enforcement)
 9. schedule appointments + history (+ RLS)
 10. medical records (+ RLS)
+11. finance feature (+ RLS)
+12. notification feature (+ RLS)
 
 ---
 

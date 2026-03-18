@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/schedule` manages tenant-scoped consultation appointments, including creation, listing by calendar window, updates/reschedules, status/payment transitions, exceptional soft deletion, history timeline, defaults lookup, and slot availability.
+`src/features/schedule` manages tenant-scoped consultation appointments, including creation, listing by calendar window, updates/reschedules, status/payment transitions, exceptional soft deletion, history timeline, defaults lookup, slot availability, and notification side effects for appointment lifecycle events.
 
 ## Scope
 
@@ -19,6 +19,7 @@ Direct dependencies used by this feature:
 - `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
 - `src/features/patient/models.py` (`Patient` lookup/active check)
+- `src/features/notification/service.py` (`NotificationService` for confirmation, update, cancellation, and reminder hooks)
 - `src/features/schedule_config/models.py` (`ScheduleConfiguration` defaults/constraints)
 - `src/features/schedule_config/schemas.py` (`WeekDay` mapping for defaults response)
 - `src/shared/pagination/pagination.py` (`PaginationParams`)
@@ -33,6 +34,7 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as ScheduleService
     participant DB as appointments + history
+    participant Notification as NotificationService
 
     Client->>Router: create/list/detail/update/status/payment/delete/defaults/availability
     Router->>Guard: RBAC + tenant assignment
@@ -41,6 +43,7 @@ sequenceDiagram
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: apply business rules
     Service->>DB: tenant-scoped read/write + history events
+    Service->>Notification: queue or cancel notification messages when applicable
     Service-->>Router: model/result
     Router-->>Client: response or feature exception
 ```
@@ -200,6 +203,7 @@ Side effects:
 
 - persists appointment with `status=scheduled`
 - writes `created` history event
+- queues confirmation and reminder notifications, then dispatches any due message immediately
 
 Success:
 
@@ -298,6 +302,11 @@ Behavior:
   - `payment_status_changed` if only payment changed
   - otherwise `updated`
 
+Side effects:
+
+- `updated` and `rescheduled` events rebuild pending reminders for the appointment
+- `updated` and `rescheduled` events queue immediate appointment-update notifications
+
 Success:
 
 - `200` `ScheduleAppointmentResponse`
@@ -330,6 +339,8 @@ Additional rule:
 Side effects:
 
 - writes `status_changed` history event with diff
+- `status=canceled` cancels pending reminders and queues immediate cancellation notifications
+- `status=no_show|completed` clears pending notifications for the appointment
 
 Success:
 
@@ -373,6 +384,7 @@ Behavior:
 - marks appointment as deleted (does not remove row)
 - stores delete metadata (`deleted_at`, `deleted_reason`, `deleted_by_user_id`)
 - writes `deleted` history event
+- cancels any pending notification rows tied to the appointment
 - endpoint fetches with `include_deleted=true`, so already-deleted records can return specific conflict instead of not found
 
 Success:
@@ -458,6 +470,7 @@ Errors:
 - snapshots `charge_amount` from override, patient price, or `0.00`
 - sets `paid_at` when created directly as paid
 - writes `created` history event
+- triggers notification confirmation + reminder handling
 
 ### `list_appointments(session, pagination, ...)`
 
@@ -487,6 +500,7 @@ Errors:
 - synchronizes `paid_at` with payment status changes
 - skips history write for no-op updates
 - writes `rescheduled`, `payment_status_changed`, or `updated` history event
+- for `updated` and `rescheduled`, refreshes appointment notifications and reminders
 
 ### `update_appointment_status(session, user_id, appointment, data)`
 
@@ -494,6 +508,7 @@ Errors:
 - optional `mark_as_not_charged=true` sets payment to `not_charged` on cancel
 - clears `paid_at` when the payment state leaves `paid`
 - writes `status_changed` history event
+- on `canceled`, queues cancellation notifications; on `no_show|completed`, cancels pending notifications
 
 ### `update_payment_status(session, user_id, appointment, payment_status, reason)`
 
@@ -506,6 +521,7 @@ Errors:
 - rejects already-deleted records
 - performs soft delete and stores delete metadata
 - writes `deleted` history event
+- cancels pending notification rows for the appointment
 
 ### `get_defaults(session)` / `get_available_slots(session, target_date, ...)`
 
@@ -540,6 +556,7 @@ Dependency-originated errors:
 ## Side Effects
 
 - create/update/status/payment/delete operations write timeline events in `schedule_appointment_history`.
+- create, update, cancel, no-show, completed, and delete flows also maintain notification outbox state through `NotificationService`.
 - update with datetime change enforces status mutation to `rescheduled` automatically.
 - canceled appointments are excluded from slot-conflict checks and availability occupancy checks.
 - soft-deleted appointments are excluded from list/detail by default and from slot-conflict checks.

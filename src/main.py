@@ -1,5 +1,6 @@
 import logging
-from contextlib import asynccontextmanager
+from asyncio import CancelledError, Task, create_task
+from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, Request
@@ -18,6 +19,8 @@ from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
 from src.features.finance.router import router as finance_router
 from src.features.medical_record.router import router as medical_record_router
+from src.features.notification.router import router as notification_router
+from src.features.notification.runtime import run_notification_dispatch_loop
 from src.features.patient.router import router as patient_router
 from src.features.schedule.router import router as schedule_router
 from src.features.schedule_config.router import router as schedule_configuration_router
@@ -48,7 +51,14 @@ async def lifespan(_: FastAPI):
     """Handle startup and shutdown events."""
     # Startup
     await init_db()
+    notification_dispatch_task: Task[None] | None = None
+    if settings.notification_background_dispatch_enabled and not settings.testing:
+        notification_dispatch_task = create_task(run_notification_dispatch_loop())
     yield
+    if notification_dispatch_task is not None:
+        notification_dispatch_task.cancel()
+        with suppress(CancelledError):
+            await notification_dispatch_task
     # Shutdown
     await close_db()
 
@@ -180,6 +190,7 @@ public_routers: list[APIRouter] = [
 # Tenant-protected routers - require X-Tenant-ID header
 tenant_routers: list[APIRouter] = [
     finance_router,
+    notification_router,
     schedule_configuration_router,
     schedule_router,
     patient_router,

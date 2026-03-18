@@ -21,6 +21,7 @@ from src.database.base import Base
 from src.features.auth import models as auth_models
 from src.features.finance import models as finance_models
 from src.features.medical_record import models as medical_record_models
+from src.features.notification import models as notification_models
 from src.features.patient import models as patient_models
 from src.features.schedule import models as schedule_models
 from src.features.schedule_config import models as schedule_config_models
@@ -34,6 +35,7 @@ _ = (
     auth_models,
     finance_models,
     medical_record_models,
+    notification_models,
     patient_models,
     schedule_models,
     schedule_config_models,
