@@ -400,6 +400,7 @@ Errors:
 - locks rows with `FOR UPDATE SKIP LOCKED`
 - resolves the delivery backend from settings (`auto`, `stub`, or `twilio`)
 - uses Twilio `messages.create(...)` when Twilio is configured
+- builds patient-facing and user-facing WhatsApp text in Brazilian Portuguese using `DD/MM/YYYY às HH:MM UTC`
 - stores `sent_at`, `failed_at`, `failure_reason`, `attempt_count`, and `provider_message_id`
 
 ### `run_notification_dispatch_loop()`

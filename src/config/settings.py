@@ -108,7 +108,7 @@ class Settings(BaseSettings):
         valid_providers = {"auto", "stub", "twilio"}
         provider = str(v).strip().lower()
         if provider not in valid_providers:
-            raise ValueError(f"notification_provider must be one of {valid_providers}, got {provider}")
+            raise ValueError(f"notification_provider deve ser um de {valid_providers}, recebido: {provider}")
         return provider
 
     @field_validator("notification_default_country_code", mode="before")
@@ -117,7 +117,7 @@ class Settings(BaseSettings):
         """Validate and normalize the default country code used for phone formatting."""
         country_code = str(v).strip()
         if not country_code.startswith("+") or not country_code[1:].isdigit():
-            raise ValueError("notification_default_country_code must be in +<digits> format")
+            raise ValueError("notification_default_country_code deve estar no formato +<dígitos>")
         return country_code
 
     @field_validator("postgres_url", mode="before")

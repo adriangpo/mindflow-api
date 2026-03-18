@@ -2,6 +2,7 @@
 
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 
 from fastapi import status
@@ -81,6 +82,39 @@ async def _create_patient(session, *, cpf: str = "52998224725", phone_number: st
 
 class TestNotificationService:
     """Service-layer notification tests."""
+
+    def test_message_templates_are_in_brazilian_portuguese(self):
+        appointment = SimpleNamespace(starts_at=datetime(2030, 1, 2, 15, 0, tzinfo=UTC))
+
+        patient_confirmation = NotificationService._build_message_content(
+            event_type=NotificationEventType.APPOINTMENT_CREATED,
+            recipient_type=NotificationRecipientType.PATIENT,
+            appointment=appointment,
+            patient_name="Adrian",
+        )
+        user_update = NotificationService._build_message_content(
+            event_type=NotificationEventType.APPOINTMENT_UPDATED,
+            recipient_type=NotificationRecipientType.USER,
+            appointment=appointment,
+            patient_name="Adrian",
+        )
+        patient_cancelation = NotificationService._build_message_content(
+            event_type=NotificationEventType.APPOINTMENT_CANCELED,
+            recipient_type=NotificationRecipientType.PATIENT,
+            appointment=appointment,
+            patient_name="Adrian",
+        )
+        patient_reminder = NotificationService._build_message_content(
+            event_type=NotificationEventType.APPOINTMENT_REMINDER,
+            recipient_type=NotificationRecipientType.PATIENT,
+            appointment=appointment,
+            patient_name="Adrian",
+        )
+
+        assert patient_confirmation == "Olá Adrian, sua consulta está confirmada para 02/01/2030 às 15:00 UTC."
+        assert user_update == "Consulta do paciente Adrian atualizada. Novo horário: 02/01/2030 às 15:00 UTC."
+        assert patient_cancelation == ("Olá Adrian, sua consulta agendada para 02/01/2030 às 15:00 UTC foi cancelada.")
+        assert patient_reminder == "Olá Adrian, este é um lembrete da sua consulta em 02/01/2030 às 15:00 UTC."
 
     async def test_create_appointment_emits_confirmation_and_reminders(self, session, make_user):
         tenant_id = session.info["tenant_id"]
@@ -203,6 +237,30 @@ class TestNotificationService:
 
 class TestNotificationAPI:
     """API-layer notification tests."""
+
+    async def test_validation_and_error_messages_are_in_brazilian_portuguese(self, auth_client, session):
+        client, user = auth_client
+        tenant_id = _tenant_id_from_client(client)
+        user.tenant_ids = [tenant_id]
+        await session.flush()
+
+        validation_response = await client.put(
+            f"/api/notifications/users/{user.id}",
+            json={
+                "is_enabled": True,
+                "receive_appointment_notifications": True,
+                "receive_reminders": True,
+            },
+        )
+        assert validation_response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert any(
+            item["msg"] == "contact_phone é obrigatório quando o envio de notificações está habilitado"
+            for item in validation_response.json()["detail"]
+        )
+
+        missing_patient_response = await client.get("/api/notifications/patients/999999")
+        assert missing_patient_response.status_code == status.HTTP_404_NOT_FOUND
+        assert missing_patient_response.json()["detail"] == "Paciente não encontrado para notificações"
 
     async def test_settings_and_profile_endpoints(self, auth_client, session):
         client, user = auth_client

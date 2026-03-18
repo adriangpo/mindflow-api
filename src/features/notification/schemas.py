@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 PHONE_LENGTHS = {10, 11}
 MAX_FAILURE_REASON_LENGTH = 500
@@ -13,10 +14,16 @@ def _validate_phone_number(value: str | None, *, field_name: str) -> str | None:
     if value is None:
         return value
     if not value.isdigit():
-        raise ValueError(f"{field_name} must contain only digits")
+        raise PydanticCustomError(
+            "phone_number_digits",
+            f"{field_name} deve conter apenas números",
+        )
     if len(value) not in PHONE_LENGTHS:
         lengths = ", ".join(str(item) for item in sorted(PHONE_LENGTHS))
-        raise ValueError(f"{field_name} must have length {lengths}")
+        raise PydanticCustomError(
+            "phone_number_length",
+            f"{field_name} deve ter {lengths} dígitos",
+        )
     return value
 
 
@@ -126,7 +133,10 @@ class NotificationUserProfileUpsertRequest(BaseModel):
             and (self.receive_appointment_notifications or self.receive_reminders)
             and self.contact_phone is None
         ):
-            raise ValueError("contact_phone is required when notification delivery is enabled")
+            raise PydanticCustomError(
+                "contact_phone_required",
+                "contact_phone é obrigatório quando o envio de notificações está habilitado",
+            )
         return self
 
 

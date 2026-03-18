@@ -8,7 +8,7 @@ class NotificationException(HTTPException):
 
     def __init__(
         self,
-        detail: str = "Notification operation failed",
+        detail: str = "Falha na operação de notificação",
         status_code: int = status.HTTP_400_BAD_REQUEST,
     ):
         super().__init__(status_code=status_code, detail=detail)
@@ -18,14 +18,14 @@ class NotificationPatientNotFound(NotificationException):
     """Raised when patient does not exist in tenant scope."""
 
     def __init__(self):
-        super().__init__(detail="Patient not found for notifications", status_code=status.HTTP_404_NOT_FOUND)
+        super().__init__(detail="Paciente não encontrado para notificações", status_code=status.HTTP_404_NOT_FOUND)
 
 
 class NotificationUserNotFound(NotificationException):
     """Raised when user does not exist."""
 
     def __init__(self):
-        super().__init__(detail="User not found for notifications", status_code=status.HTTP_404_NOT_FOUND)
+        super().__init__(detail="Usuário não encontrado para notificações", status_code=status.HTTP_404_NOT_FOUND)
 
 
 class NotificationUserNotAssignedToTenant(NotificationException):
@@ -33,6 +33,6 @@ class NotificationUserNotAssignedToTenant(NotificationException):
 
     def __init__(self):
         super().__init__(
-            detail="User is not assigned to the current tenant",
+            detail="Usuário não está vinculado ao tenant atual",
             status_code=status.HTTP_409_CONFLICT,
         )

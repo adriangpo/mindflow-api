@@ -27,85 +27,113 @@ from .service import NotificationService
 
 router = APIRouter(
     prefix="/notifications",
-    tags=["Notification Management"],
+    tags=["Notificações"],
     dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT))],
 )
 
 
-@router.get("/settings", response_model=NotificationSettingsResponse)
+@router.get(
+    "/settings",
+    response_model=NotificationSettingsResponse,
+    summary="Obter configurações de notificação",
+)
 async def get_notification_settings(
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Get effective tenant notification settings."""
+    """Obtém as configurações efetivas de notificação do tenant."""
     settings = await NotificationService.get_settings(session)
     return NotificationSettingsResponse.model_validate(settings)
 
 
-@router.put("/settings", response_model=NotificationSettingsResponse)
+@router.put(
+    "/settings",
+    response_model=NotificationSettingsResponse,
+    summary="Atualizar configurações de notificação",
+)
 async def update_notification_settings(
     data: NotificationSettingsUpdateRequest,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Create or update tenant notification settings."""
+    """Cria ou atualiza as configurações de notificação do tenant."""
     settings = await NotificationService.upsert_settings(session, data)
     await session.commit()
     await session.refresh(settings)
     return NotificationSettingsResponse.model_validate(settings)
 
 
-@router.get("/patients/{patient_id}", response_model=NotificationPatientPreferenceResponse)
+@router.get(
+    "/patients/{patient_id}",
+    response_model=NotificationPatientPreferenceResponse,
+    summary="Obter preferência de notificação do paciente",
+)
 async def get_patient_notification_preference(
     patient_id: int,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Get effective notification settings for one patient."""
+    """Obtém as configurações efetivas de notificação de um paciente."""
     preference = await NotificationService.get_patient_preference_details(session, patient_id)
     return NotificationPatientPreferenceResponse.model_validate(preference)
 
 
-@router.put("/patients/{patient_id}", response_model=NotificationPatientPreferenceResponse)
+@router.put(
+    "/patients/{patient_id}",
+    response_model=NotificationPatientPreferenceResponse,
+    summary="Atualizar preferência de notificação do paciente",
+)
 async def upsert_patient_notification_preference(
     patient_id: int,
     data: NotificationPatientPreferenceUpsertRequest,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Create or update notification settings for one patient."""
+    """Cria ou atualiza as configurações de notificação de um paciente."""
     await NotificationService.upsert_patient_preference(session, patient_id, data)
     await session.commit()
     preference = await NotificationService.get_patient_preference_details(session, patient_id)
     return NotificationPatientPreferenceResponse.model_validate(preference)
 
 
-@router.get("/users/{user_id}", response_model=NotificationUserProfileResponse)
+@router.get(
+    "/users/{user_id}",
+    response_model=NotificationUserProfileResponse,
+    summary="Obter perfil de notificação do usuário",
+)
 async def get_user_notification_profile(
     user_id: int,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Get notification profile for one tenant user."""
+    """Obtém o perfil de notificação de um usuário do tenant."""
     profile = await NotificationService.get_user_profile_details(session, user_id)
     return NotificationUserProfileResponse.model_validate(profile)
 
 
-@router.put("/users/{user_id}", response_model=NotificationUserProfileResponse)
+@router.put(
+    "/users/{user_id}",
+    response_model=NotificationUserProfileResponse,
+    summary="Atualizar perfil de notificação do usuário",
+)
 async def upsert_user_notification_profile(
     user_id: int,
     data: NotificationUserProfileUpsertRequest,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Create or update notification profile for one tenant user."""
+    """Cria ou atualiza o perfil de notificação de um usuário do tenant."""
     await NotificationService.upsert_user_profile(session, user_id, data)
     await session.commit()
     profile = await NotificationService.get_user_profile_details(session, user_id)
     return NotificationUserProfileResponse.model_validate(profile)
 
 
-@router.get("/messages", response_model=NotificationMessageListResponse)
+@router.get(
+    "/messages",
+    response_model=NotificationMessageListResponse,
+    summary="Listar mensagens de notificação",
+)
 async def list_notification_messages(
     pagination: PaginationParams = Depends(),
     message_status: NotificationMessageStatus | None = Query(default=None),
@@ -117,7 +145,7 @@ async def list_notification_messages(
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """List notification messages and delivery attempts."""
+    """Lista mensagens de notificação e tentativas de envio."""
     messages, total = await NotificationService.list_messages(
         session=session,
         pagination=pagination,
@@ -136,13 +164,17 @@ async def list_notification_messages(
     )
 
 
-@router.post("/dispatch", response_model=NotificationDispatchResponse)
+@router.post(
+    "/dispatch",
+    response_model=NotificationDispatchResponse,
+    summary="Disparar notificações pendentes",
+)
 async def dispatch_due_notifications(
     data: NotificationDispatchRequest,
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Dispatch due pending notifications for the current tenant."""
+    """Dispara notificações pendentes já vencidas no tenant atual."""
     result = await NotificationService.dispatch_due_messages(session, limit=data.limit)
     await session.commit()
     return NotificationDispatchResponse.model_validate(result)

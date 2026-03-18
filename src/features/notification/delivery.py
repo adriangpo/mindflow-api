@@ -53,7 +53,7 @@ class LoggingNotificationDeliveryBackend:
 
     async def send_whatsapp(self, *, destination: str, content: str) -> NotificationDeliveryResult:
         """Persist a successful stub send in logs and return synthetic metadata."""
-        logger.info("Stub WhatsApp notification sent to %s: %s", destination, content)
+        logger.info("Notificação de WhatsApp simulada enviada para %s: %s", destination, content)
         return NotificationDeliveryResult(provider_message_id=str(uuid7()))
 
 
@@ -79,7 +79,7 @@ class TwilioNotificationDeliveryBackend:
     def _normalize_e164(number: str, *, default_country_code: str | None = None) -> str:
         normalized = number.strip()
         if not normalized:
-            raise NotificationDeliveryError("Phone number is empty")
+            raise NotificationDeliveryError("Número de telefone vazio")
 
         if normalized.startswith("whatsapp:"):
             normalized = normalized.removeprefix("whatsapp:")
@@ -87,12 +87,12 @@ class TwilioNotificationDeliveryBackend:
         if normalized.startswith("+"):
             digits = "".join(char for char in normalized if char.isdigit())
             if not digits:
-                raise NotificationDeliveryError("Phone number must contain digits")
+                raise NotificationDeliveryError("O número de telefone deve conter dígitos")
             return f"+{digits}"
 
         digits = "".join(char for char in normalized if char.isdigit())
         if not digits:
-            raise NotificationDeliveryError("Phone number must contain digits")
+            raise NotificationDeliveryError("O número de telefone deve conter dígitos")
 
         if default_country_code is None:
             return f"+{digits}"
@@ -107,11 +107,11 @@ class TwilioNotificationDeliveryBackend:
             return self._client
 
         if TwilioClient is None:
-            raise NotificationDeliveryError("Twilio SDK is not installed")
+            raise NotificationDeliveryError("O SDK do Twilio não está instalado")
         if not self._account_sid or not self._auth_token or not self._from_whatsapp_number:
             raise NotificationDeliveryError(
-                "Twilio WhatsApp is not fully configured; set TWILIO_ACCOUNT_SID, "
-                "TWILIO_AUTH_TOKEN, and TWILIO_WHATSAPP_FROM_NUMBER"
+                "O WhatsApp do Twilio não está totalmente configurado; defina "
+                "TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN e TWILIO_WHATSAPP_FROM_NUMBER"
             )
 
         self._client = TwilioClient(self._account_sid, self._auth_token)
@@ -141,7 +141,8 @@ class TwilioNotificationDeliveryBackend:
                 content=content,
             )
         except TwilioSDKError as exc:
-            raise NotificationDeliveryError(f"Twilio delivery failed: {exc}") from exc
+            logger.exception("Falha no envio de notificação via Twilio")
+            raise NotificationDeliveryError("Falha no envio da notificação via Twilio") from exc
 
 
 @lru_cache(maxsize=1)

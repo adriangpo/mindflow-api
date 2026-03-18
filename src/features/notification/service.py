@@ -72,7 +72,7 @@ class NotificationService:
     def _require_tenant_id(session: AsyncSession):
         tenant_id = session.info.get("tenant_id")
         if tenant_id is None:
-            raise RuntimeError("Tenant context is required for notification operations")
+            raise RuntimeError("O contexto do tenant é obrigatório para operações de notificação")
         return tenant_id
 
     @staticmethod
@@ -410,7 +410,7 @@ class NotificationService:
     @staticmethod
     def _format_datetime(value: datetime) -> str:
         """Format datetimes consistently for message bodies."""
-        return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        return value.astimezone(UTC).strftime("%d/%m/%Y às %H:%M UTC")
 
     @staticmethod
     def _build_message_content(
@@ -423,22 +423,22 @@ class NotificationService:
         scheduled_for = NotificationService._format_datetime(appointment.starts_at)
         if event_type == NotificationEventType.APPOINTMENT_CREATED:
             if recipient_type == NotificationRecipientType.PATIENT:
-                return f"Hello {patient_name}, your appointment is confirmed for {scheduled_for}."
-            return f"Appointment confirmed for patient {patient_name} at {scheduled_for}."
+                return f"Olá {patient_name}, sua consulta está confirmada para {scheduled_for}."
+            return f"Consulta do paciente {patient_name} confirmada para {scheduled_for}."
 
         if event_type == NotificationEventType.APPOINTMENT_UPDATED:
             if recipient_type == NotificationRecipientType.PATIENT:
-                return f"Hello {patient_name}, your appointment was updated to {scheduled_for}."
-            return f"Appointment updated for patient {patient_name}. New time: {scheduled_for}."
+                return f"Olá {patient_name}, sua consulta foi atualizada para {scheduled_for}."
+            return f"Consulta do paciente {patient_name} atualizada. Novo horário: {scheduled_for}."
 
         if event_type == NotificationEventType.APPOINTMENT_CANCELED:
             if recipient_type == NotificationRecipientType.PATIENT:
-                return f"Hello {patient_name}, your appointment scheduled for {scheduled_for} was canceled."
-            return f"Appointment canceled for patient {patient_name}. Original time: {scheduled_for}."
+                return f"Olá {patient_name}, sua consulta agendada para {scheduled_for} foi cancelada."
+            return f"Consulta do paciente {patient_name} cancelada. Horário original: {scheduled_for}."
 
         if recipient_type == NotificationRecipientType.PATIENT:
-            return f"Hello {patient_name}, this is a reminder for your appointment at {scheduled_for}."
-        return f"Reminder: patient {patient_name} has an appointment at {scheduled_for}."
+            return f"Olá {patient_name}, este é um lembrete da sua consulta em {scheduled_for}."
+        return f"Lembrete: o paciente {patient_name} tem consulta às {scheduled_for}."
 
     @staticmethod
     async def _list_user_profiles(
