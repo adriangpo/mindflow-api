@@ -139,8 +139,22 @@ class User(Base, TimestampMixin, AuditableMixin):
 
     def is_locked(self) -> bool:
         """Check if account is locked."""
-        locked_until = self.locked_until
-        if locked_until:
-            if locked_until > datetime.now(UTC):
-                return True
+        return self.locked_until is not None and self.locked_until > datetime.now(UTC)
+
+    def release_temporary_lock(self) -> bool:
+        """Restore active status when a temporary lock has expired.
+
+        Returns:
+            True when a lock was released, otherwise False.
+
+        """
+        if (
+            self.status == UserStatus.LOCKED.value
+            and self.locked_until is not None
+            and self.locked_until <= datetime.now(UTC)
+        ):
+            self.status = UserStatus.ACTIVE.value
+            self.locked_until = None
+            self.failed_login_attempts = 0
+            return True
         return False

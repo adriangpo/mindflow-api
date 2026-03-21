@@ -48,12 +48,14 @@ class AuthService:
         if not user:
             return None
 
-        if not user.is_active:
-            logger.warning(f"Login attempt for inactive account: {credential}")
-            return None
+        user.release_temporary_lock()
 
         if user.is_locked():
-            logger.warning(f"Login attempt for locked account: {credential}")
+            logger.warning("Login attempt for locked account: %s", credential)
+            return None
+
+        if not user.is_active:
+            logger.warning("Login attempt for inactive account: %s", credential)
             return None
 
         if not user.verify_password(password):
@@ -62,12 +64,13 @@ class AuthService:
             if user.failed_login_attempts >= 5:
                 user.locked_until = datetime.now(UTC) + timedelta(minutes=30)
                 user.status = UserStatus.LOCKED.value
-                logger.warning(f"Account locked due to failed attempts: {credential}")
+                logger.warning("Account locked due to failed attempts: %s", credential)
 
             return None
 
         user.failed_login_attempts = 0
         user.last_login_at = datetime.now(UTC)
+        user.status = UserStatus.ACTIVE.value
         user.locked_until = None
         user.is_logged_in = True
 
@@ -164,3 +167,25 @@ class AuthService:
             return True
 
         return False
+
+    @staticmethod
+    async def revoke_all_user_tokens(session: AsyncSession, user_id: int) -> int:
+        """Revoke all active refresh tokens for a user.
+
+        Returns:
+            Number of tokens revoked.
+
+        """
+        stmt = select(RefreshToken).where(RefreshToken.user_id == user_id, ~RefreshToken.revoked)
+        result = await session.execute(stmt)
+        tokens = list(result.scalars().all())
+
+        if not tokens:
+            return 0
+
+        revoked_at = datetime.now(UTC)
+        for token in tokens:
+            token.revoked = True
+            token.revoked_at = revoked_at
+
+        return len(tokens)

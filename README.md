@@ -1,231 +1,197 @@
 # Mindflow API
 
-Backend system for corporate fixed-asset management with FastAPI, PostgreSQL, and Multi-Tenancy support.
+FastAPI backend for multi-tenant clinical scheduling and patient management.
 
-## 📚 Documentation
+The API now uses Redis for two runtime concerns:
+
+- async export jobs and live export progress events
+- notification scheduling and delivery queues
 
 ## Quick Start
 
-### 1. Install Dependencies
+### 1. Install dependencies
 
 ```bash
-# Using uv (recommended)
-uv sync
-
-# Or using pip
-pip install -e .
+make install
+# or
+uv sync --all-extras
 ```
 
-### 2. Configure Environment
-
-Copy the example environment file and edit as needed:
+### 2. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-**Important:** Update the configuration in `.env`:
+Set at least:
+
+- `SECRET_KEY`
+
+Database configuration options:
+
+- `POSTGRES_URL` (full connection string override)
+- or `POSTGRES_USER` + `POSTGRES_PASSWORD` + `POSTGRES_DB` + `POSTGRES_HOST` + `POSTGRES_PORT`
+- `REDIS_URL`
+- `NOTIFICATION_PROVIDER` (`auto`, `stub`, or `twilio`)
+- `NOTIFICATION_BACKGROUND_DISPATCH_ENABLED` (default `true`)
+- `NOTIFICATION_DISPATCH_INTERVAL_SECONDS` (default `60`)
+- `EXPORT_WORKER_ENABLED` (default `true`)
+- `EXPORT_SSE_KEEPALIVE_SECONDS` (default `15`)
+- `NOTIFICATION_DEFAULT_COUNTRY_CODE` (default `+55`, used to format stored local phone numbers)
+- `TWILIO_ACCOUNT_SID`
+- `TWILIO_AUTH_TOKEN`
+- `TWILIO_WHATSAPP_FROM_NUMBER`
+
+For Docker runs, API container uses `POSTGRES_URL` when provided; otherwise it builds one from `POSTGRES_USER/PASSWORD/HOST/DB` using internal PostgreSQL port `5432`.
+Default `.env.example` sets `POSTGRES_HOST=postgres` for Docker networking.
+If you run API locally (outside Docker), set `POSTGRES_HOST=localhost`.
+Default `.env.example` also sets `REDIS_URL=redis://redis:6379/0` for Docker networking.
+
+### 3. Start services (Docker)
 
 ```bash
-# Generate a secure secret key
-openssl rand -hex 32
+make docker-start ENVIRONMENT=development
 ```
 
-Edit `.env` and configure:
-- `SECRET_KEY` - Use the generated key above
-- `POSTGRES_URL` - Your PostgreSQL connection string
+`make docker-start` starts API + PostgreSQL + Redis containers for the selected profile.
 
-Example PostgreSQL URL:
-```
-POSTGRES_URL=postgresql+asyncpg://username:password@localhost:5432/dbname
-```
+If you want to run API locally with `uv run`, start PostgreSQL and Redis separately (for example: `docker compose up -d postgres redis`).
 
-### 3. Start PostgreSQL
-
-Make sure PostgreSQL is running:
+### 4. Run migrations
 
 ```bash
-# Using Docker (recommended for development)
-docker run -d \
-  --name mindflow-postgres \
-  -e POSTGRES_USER=mindflow \
-  -e POSTGRES_PASSWORD=mindflow \
-  -e POSTGRES_DB=mindflow \
-  -p 5432:5432 \
-  postgres:16-alpine
-
-# Or use your local PostgreSQL installation
-```
-
-### 4. Run Database Migrations
-
-```bash
-# Apply all migrations to create tables
 make db-upgrade
-
-# Or use alembic directly
-alembic upgrade head
+# or
+uv run alembic upgrade head
 ```
 
-### 5. Run the API
+### 5. Run API (local only)
 
 ```bash
-uvicorn src.main:app --reload
+uv run uvicorn src.main:app --reload
 ```
 
-Visit http://localhost:8000/docs for interactive API documentation.
+Skip this step when using `make docker-start` because API is already running in Docker.
 
-## Project Structure
+- API root: `http://localhost:8000/`
+- Health check: `http://localhost:8000/health`
+- Docs routes (`/docs`, `/redoc`, `/openapi.json`):
+  - `development`: public
+  - non-development environments: admin-only
 
-```
-src/
-├── config/          # Configuration and settings
-├── database/        # Database connection management
-├── features/        # Feature-based modules
-│   └── auth/        # Authentication & authorization
-│       ├── models.py      # User and RefreshToken models
-│       ├── schemas.py     # API request/response schemas
-│       ├── service.py     # Business logic
-│       ├── dependencies.py # FastAPI dependencies
-│       ├── router.py      # API endpoints
-│       └── jwt_utils.py   # JWT token utilities
-└── main.py          # FastAPI application entry point
-```
+### Twilio WhatsApp
+
+Notification delivery defaults to `auto` mode:
+
+- if `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_WHATSAPP_FROM_NUMBER` are set, outbound WhatsApp uses Twilio
+- otherwise the API stays on the internal stub backend and only logs notifications
+
+Stored patient/profile phone numbers are local digits in this project, so outbound delivery prefixes them with `NOTIFICATION_DEFAULT_COUNTRY_CODE` before sending to Twilio.
+For Twilio sandbox testing, use the Twilio sandbox sender number and join the sandbox from the recipient device first.
+
+## Architecture Summary
+
+- App entrypoint: `src/main.py`
+- Feature modules: `src/features/{auth,user,tenant,export,schedule_config,patient,schedule,finance,medical_record,notification}`
+- Shared modules: `src/shared/*`
+- Database migrations: `alembic/versions/*`
+- Redis runtime state:
+  - export jobs and creator-scoped export event streams
+  - notification schedule ZSET and per-tenant delivery streams
+
+Tenant-protected endpoints require:
+
+1. `Authorization: Bearer <access_token>`
+2. `X-Tenant-ID: <tenant_uuid>`
+3. Tenant membership validation
+
+Tenant-scoped tables use PostgreSQL RLS policies keyed by `app.current_tenant`.
+
+Export flows are async:
+
+- feature-specific `POST .../export/pdf` endpoints return `202 Accepted` with an export job payload
+- generic `/api/exports/{job_id}` returns progress
+- generic `/api/exports/events` streams SSE updates for the authenticated user in the current tenant
+- generic `/api/exports/{job_id}/download` serves the finished file
 
 ## Authentication
 
-### User Roles
+- JWT access token (default 30 minutes)
+- JWT refresh token (7 days, persisted in `refresh_tokens`)
+- Account lock protection:
+  - after 5 failed login attempts, account is locked for 30 minutes
+  - when lock expiry is reached, account is automatically restored to `active`
 
-- **ADMIN**: Platform-level administrator (cross-tenant). Can manage accounts, enforce read-only mode, manage plans, and perform support operations. Does NOT participate in clinical operations.
-- **TENANT_OWNER**: The autonomous professional. Owner of the tenant. Has full access to: patients, medical records, agenda, scheduling, financial management, notifications, and assistants. ONLY role allowed to access medical records.
-- **ASSISTANT**: Secretary role. Can: schedule appointments, update appointment status, manage financial entries, send notifications. Cannot: access medical records, export records, modify configuration, delete patients.
+Roles (`src/features/user/models.py`):
 
-### API Endpoints
+- `admin`
+- `tenant_owner`
+- `assistant`
 
-#### Public Endpoints
-- `POST /api/auth/login` - Login with username/password
-- `POST /api/auth/refresh` - Refresh access token
+## CORS
 
-#### Authenticated Endpoints
-- `GET /api/users/me` - Get current user profile
-- `PUT /api/users/me` - Update current user profile
-- `POST /api/users/me/change-password` - Change password
-- `POST /api/auth/logout` - Logout (revoke refresh token)
+CORS config lives in `src/config/cors_config.py`.
 
-#### Admin Endpoints
-- `POST /api/users` - Register new user
-- `GET /api/users` - List all users
-- `GET /api/users/{user_id}` - Get user by ID
-- `PUT /api/users/{user_id}` - Update user
-- `DELETE /api/users/{user_id}` - Delete user
+Development defaults (when `CORS_ALLOW_ORIGINS` is not set):
 
-### Using Authentication
+- `http://localhost:3000`
+- `http://localhost:8000`
+- `http://127.0.0.1:3000`
+- `http://127.0.0.1:8000`
 
-1. **Login:**
-```bash
-curl -X POST "http://localhost:8000/api/auth/login" \
-  -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin123"}'
-```
+Production/staging require explicit origin configuration (no wildcard policy in those environments).
 
-Response:
-```json
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "refresh_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "token_type": "bearer",
-  "expires_in": 1800
-}
-```
+## Testing And Quality
 
-2. **Use Access Token:**
-```bash
-curl -X GET "http://localhost:8000/api/users/me" \
-  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
-```
+Tests run against PostgreSQL (not SQLite) and apply Alembic migrations before test execution.
+Tests also require Redis for export and notification queue/runtime coverage.
 
-3. **Refresh Token:**
-```bash
-curl -X POST "http://localhost:8000/api/auth/refresh" \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token": "YOUR_REFRESH_TOKEN"}'
-```
-
-## Configuration
-
-All configuration is managed through environment variables. Copy `.env.example` to `.env` and customize:
+Create test env file before running test DB commands:
 
 ```bash
-cp .env.example .env
+cp .env.test.example .env.test
 ```
 
-Key configuration options:
+Test DB variables in `.env.test` use `TEST_POSTGRES_*`:
 
-```env
-# Application
-DEBUG=False
+- `TEST_POSTGRES_USER`
+- `TEST_POSTGRES_PASSWORD`
+- `TEST_POSTGRES_DB`
+- `TEST_POSTGRES_HOST`
+- `TEST_POSTGRES_PORT`
+- optional `TEST_POSTGRES_URL` override
 
-# PostgreSQL
-POSTGRES_URL=postgresql+asyncpg://user:password@localhost:5432/dbname
+Test Redis variables in `.env.test`:
 
-# Security (CHANGE IN PRODUCTION!)
-SECRET_KEY=your-secret-key-here
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+- `TEST_REDIS_URL`
+- `REDIS_URL` (used by the app runtime during tests)
 
-# Logging
-LOG_LEVEL=INFO
+```bash
+make check-all
+make test
 ```
 
-See `.env.example` for all available configuration options.
+Useful targets:
 
-## What's Included
+- `make lint`
+- `make type-check`
+- `make test-cov`
+- `make docker-test-up`
+- `make docker-test-down`
 
-✅ FastAPI application with async support  
-✅ PostgreSQL database with SQLAlchemy (async)  
-✅ Database migrations with Alembic  
-✅ JWT-based authentication  
-✅ Role-based access control (RBAC)  
-✅ User management (CRUD)  
-✅ Password hashing (argon2)  
-✅ Refresh token rotation  
-✅ Account locking after failed attempts  
-✅ Environment-based configuration  
-✅ Health check endpoints  
-✅ OpenAPI/Swagger documentation  
-✅ Comprehensive test suite with SQLite  
-✅ Multi-tenancy with PostgreSQL Row-Level Security (RLS)  
-✅ CORS support with configurable origins  
-✅ Rate limiting via SlowAPI  
-✅ UUID v7 for modern ID generation
+`make docker-test-up` starts both `postgres_test` and `redis_test`.
 
-## Security Features
+## Feature Docs
 
-- **Password Hashing**: Using argon2 via pwdlib
-- **JWT Tokens**: Access tokens (30 min) + Refresh tokens (7 days)
-- **Token Rotation**: New refresh token issued on every refresh
-- **Account Locking**: Auto-lock after 5 failed login attempts (30 min)
-- **Role-Based Access Control**: Fine-grained permissions per role
-- **Audit Trail**: Track login times, failed attempts, token usage
-- **Multi-Tenancy**: PostgreSQL Row-Level Security ensures strict tenant isolation
-- **CORS**: Configurable cross-origin resource sharing for frontend integration
-- **Rate Limiting**: Per-IP rate limiting via SlowAPI for DDoS protection
+Implementation-focused docs are under `docs/features/`:
 
-## Recent Improvements
-
-### Multi-Tenancy (Production-Ready)
-- ✅ Shared-table multi-tenancy model with PostgreSQL RLS
-- ✅ Tenant identification via X-Tenant-ID header
-- ✅ Database-level enforcement of tenant isolation
-- ✅ Three-layer defense: HTTP → Application → Database
-
-### Modern Infrastructure
-- ✅ **UUID v7** for better timestamp ordering and performance
-- ✅ **CORS middleware** with configurable origins (default: allow all)
-- ✅ **Rate limiting** with per-IP tracking via SlowAPI
-- ✅ Clean module structure with no circular imports
-
-## Next Steps
-
-Future features to be added:
-- Exception handling and approvals
-- Export functionality (Excel/CSV)
+- `docs/features/auth.md`
+- `docs/features/user.md`
+- `docs/features/tenant.md`
+- `docs/features/schedule-config.md`
+- `docs/features/patient.md`
+- `docs/features/schedule.md`
+- `docs/features/finance.md`
+- `docs/features/medical-record.md`
+- `docs/features/notification.md`
+- `docs/features/export.md`

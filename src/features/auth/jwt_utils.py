@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
-from jwt.exceptions import InvalidTokenError
 
 from src.config.settings import settings
 
@@ -29,8 +28,7 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
 
     to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
 
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
-    return encoded_jwt
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
 def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
@@ -46,16 +44,11 @@ def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | None =
     """
     to_encode = data.copy()
 
-    if expires_delta:
-        expire = datetime.now(UTC) + expires_delta
-    else:
-        # Refresh tokens last 7 days by default
-        expire = datetime.now(UTC) + timedelta(days=7)
+    expire = datetime.now(UTC) + expires_delta if expires_delta else datetime.now(UTC) + timedelta(days=7)
 
     to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "refresh"})
 
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
-    return encoded_jwt
+    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.jwt_algorithm)
 
 
 def decode_token(token: str) -> dict[str, Any]:
@@ -71,11 +64,7 @@ def decode_token(token: str) -> dict[str, Any]:
         InvalidTokenError: If token is invalid or expired
 
     """
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-        return payload
-    except InvalidTokenError:
-        raise
+    return jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
 
 
 def verify_token_type(payload: dict[str, Any], expected_type: str) -> bool:

@@ -92,6 +92,7 @@ tmp/
 # Logs
 *.log
 logs/
+storage/
 
 # Distribution
 build/
@@ -102,7 +103,6 @@ dist/
 alembic/versions/__pycache__/
 
 # Docker
-.dockerignore
 docker-compose.override.yml
 
 # Mypy

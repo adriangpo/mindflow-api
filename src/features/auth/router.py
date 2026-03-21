@@ -41,7 +41,7 @@ async def login(data: UserLoginRequest, request: Request, session: AsyncSession 
     tokens = await AuthService.create_tokens(session, user, ip_address, user_agent)
     await session.commit()
 
-    logger.info(f"User logged in: {user.username}")
+    logger.info("User logged in: %s", user.username)
     return tokens
 
 
@@ -73,7 +73,6 @@ async def logout(
     if revoked:
         current_user.is_logged_in = False
         await session.commit()
-        logger.info(f"User logged out: {current_user.username}")
+        logger.info("User logged out: %s", current_user.username)
         return {"message": "Successfully logged out"}
-    else:
-        return {"message": "Token already revoked or not found"}
+    return {"message": "Token already revoked or not found"}

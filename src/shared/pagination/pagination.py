@@ -75,18 +75,20 @@ class PaginatedResponse[T](BaseModel):
         """Check if there's a next page."""
         if not self.is_paginated or self.total_pages is None:
             return False
-        # At this point, page is guaranteed to be not None due to is_paginated check
-        assert self.page is not None
-        return self.page < self.total_pages
+        page = self.page
+        if page is None:
+            return False
+        return page < self.total_pages
 
     @property
     def has_previous(self) -> bool:
         """Check if there's a previous page."""
         if not self.is_paginated:
             return False
-        # At this point, page is guaranteed to be not None due to is_paginated check
-        assert self.page is not None
-        return self.page > 1
+        page = self.page
+        if page is None:
+            return False
+        return page > 1
 
     @property
     def is_paginated(self) -> bool:

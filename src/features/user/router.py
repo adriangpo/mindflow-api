@@ -10,7 +10,7 @@ from src.features.auth.dependencies import get_current_active_user, require_role
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
-    CannotDeleteOwnAccount,
+    CannotDeactivateOwnAccount,
     UserNotFound,
 )
 from .models import User, UserRole
@@ -79,7 +79,7 @@ async def register_user_admin(
     """
     user = await UserService.register_user(session, data)
     await session.commit()
-    logger.info(f"New user registered by admin {current_user.username}: {user.username}")
+    logger.info("New user registered by admin %s: %s", current_user.username, user.username)
     return UserResponse.model_validate(user)
 
 
@@ -141,7 +141,7 @@ async def update_user(
     )
     await session.commit()
 
-    logger.info(f"User updated by admin {current_user.username}: {user.username}")
+    logger.info("User updated by admin %s: %s", current_user.username, user.username)
     return UserResponse.model_validate(user)
 
 
@@ -160,7 +160,12 @@ async def assign_roles(
 
     user = await UserService.assign_roles(user, data.roles)
     await session.commit()
-    logger.info(f"Roles assigned to {user.username} by admin {current_user.username}: {[r.value for r in data.roles]}")
+    logger.info(
+        "Roles assigned to %s by admin %s: %s",
+        user.username,
+        current_user.username,
+        [r.value for r in data.roles],
+    )
     return UserResponse.model_validate(user)
 
 
@@ -181,7 +186,12 @@ async def assign_permissions(
 
     user = await UserService.assign_permissions(user, data.permissions)
     await session.commit()
-    logger.info(f"Permissions assigned to {user.username} by admin {current_user.username}: {data.permissions}")
+    logger.info(
+        "Permissions assigned to %s by admin %s: %s",
+        user.username,
+        current_user.username,
+        data.permissions,
+    )
     return UserResponse.model_validate(user)
 
 
@@ -200,25 +210,30 @@ async def assign_tenants(
 
     user = await UserService.assign_tenants(user, data.tenant_ids)
     await session.commit()
-    logger.info(f"Tenant access assigned to {user.username} by admin {current_user.username}: {data.tenant_ids}")
+    logger.info(
+        "Tenant access assigned to %s by admin %s: %s",
+        user.username,
+        current_user.username,
+        data.tenant_ids,
+    )
     return UserResponse.model_validate(user)
 
 
 @router.delete("/{user_id}", dependencies=[Depends(require_role(UserRole.ADMIN))])
-async def delete_user(
+async def deactivate_user(
     user_id: int,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Delete user (admin only)."""
+    """Deactivate user (admin only)."""
     if current_user.id == user_id:
-        raise CannotDeleteOwnAccount()
+        raise CannotDeactivateOwnAccount()
 
-    success = await UserService.delete_user(session, user_id)
+    success = await UserService.deactivate_user(session, user_id)
     await session.commit()
 
     if not success:
         raise UserNotFound()
 
-    logger.info(f"User deleted by admin {current_user.username}: {user_id}")
-    return {"message": "User deleted successfully"}
+    logger.info("User deactivated by admin %s: %s", current_user.username, user_id)
+    return {"message": "User deactivated successfully"}

@@ -45,11 +45,11 @@ class IncorrectPassword(UserException):
         super().__init__(detail="Current password is incorrect")
 
 
-class CannotDeleteOwnAccount(UserException):
-    """Raised when trying to delete own account."""
+class CannotDeactivateOwnAccount(UserException):
+    """Raised when trying to deactivate own account."""
 
     def __init__(self):
-        super().__init__(detail="Cannot delete your own account")
+        super().__init__(detail="Cannot deactivate your own account")
 
 
 class CannotModifyOtherUser(UserException):

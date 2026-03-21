@@ -1,7 +1,7 @@
 """Tests for schedule configuration feature."""
 
 from datetime import time
-from uuid import UUID, uuid7
+from uuid import UUID
 
 import pytest
 from fastapi import status
@@ -32,7 +32,6 @@ class TestScheduleConfigurationService:
 
     async def test_create_configuration_success(self, session, make_user):
         user = await make_user()
-        session.info["tenant_id"] = uuid7()
 
         request = ScheduleConfigurationCreateRequest(
             working_days=[WeekDay.MONDAY, WeekDay.WEDNESDAY, WeekDay.FRIDAY],
@@ -54,7 +53,6 @@ class TestScheduleConfigurationService:
     async def test_tenant_can_only_have_one_configuration(self, session, make_user):
         owner = await make_user(email="owner_sc@example.com", username="owner_sc")
         assistant = await make_user(email="assistant_sc@example.com", username="assistant_sc")
-        session.info["tenant_id"] = uuid7()
 
         owner_request = ScheduleConfigurationCreateRequest(
             working_days=[WeekDay.MONDAY],
@@ -77,7 +75,6 @@ class TestScheduleConfigurationService:
             await ScheduleConfigurationService.create_configuration(session, assistant.id, assistant_request)
 
     async def test_list_configurations_with_pagination(self, session, make_user):
-        session.info["tenant_id"] = uuid7()
         user_1 = await make_user(email="sc_user1@example.com", username="sc_user1")
 
         await ScheduleConfigurationService.create_configuration(
@@ -102,7 +99,6 @@ class TestScheduleConfigurationService:
 
     async def test_update_configuration(self, session, make_user):
         user = await make_user()
-        session.info["tenant_id"] = uuid7()
         configuration = await ScheduleConfigurationService.create_configuration(
             session,
             user.id,

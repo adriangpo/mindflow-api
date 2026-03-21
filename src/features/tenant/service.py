@@ -85,7 +85,7 @@ class TenantService:
 
         tenant = Tenant(name=data.name, slug=slug, is_active=True)
         session.add(tenant)
-        logger.info(f"Tenant created: {tenant.slug}")
+        logger.info("Tenant created: %s", tenant.slug)
         return tenant
 
     @staticmethod
@@ -130,7 +130,7 @@ class TenantService:
                 tenant.slug = normalized_slug
 
         tenant.updated_at = datetime.now(UTC)
-        logger.info(f"Tenant updated: {tenant.id}")
+        logger.info("Tenant updated: %s", tenant.id)
         return tenant
 
     @staticmethod
@@ -138,4 +138,4 @@ class TenantService:
         """Deactivate tenant instead of deleting it."""
         tenant.is_active = False
         tenant.updated_at = datetime.now(UTC)
-        logger.info(f"Tenant deactivated: {tenant.id}")
+        logger.info("Tenant deactivated: %s", tenant.id)

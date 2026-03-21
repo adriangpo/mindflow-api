@@ -1,17 +1,69 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mindflow-api
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-true}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://${POSTGRES_USER:-mindflow}:${POSTGRES_PASSWORD:-mindflow}@${POSTGRES_HOST:-postgres}:5432/${POSTGRES_DB:-mindflow}}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      JOB_DISPATCH_MODE: ${JOB_DISPATCH_MODE:-redis_worker}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:${API_PORT:-8000}}
+      API_PREFIX: ${API_PREFIX:-/api}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:3000}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-false}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_ROOT: ${STORAGE_ROOT:-storage}
+      QSTASH_URL: ${QSTASH_URL:-https://qstash.upstash.io}
+      QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-auto}
+      EXPORT_JOB_TTL_SECONDS: ${EXPORT_JOB_TTL_SECONDS:-86400}
+      EXPORT_EVENT_STREAM_TTL_SECONDS: ${EXPORT_EVENT_STREAM_TTL_SECONDS:-3600}
+      EXPORT_EVENT_STREAM_MAXLEN: ${EXPORT_EVENT_STREAM_MAXLEN:-200}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   postgres:
     image: postgres:16-alpine
     container_name: mindflow-postgres
     environment:
-      POSTGRES_USER: mindflow
-      POSTGRES_PASSWORD: mindflow
-      POSTGRES_DB: mindflow
+      POSTGRES_USER: ${POSTGRES_USER:-mindflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mindflow}
+      POSTGRES_DB: ${POSTGRES_DB:-mindflow}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mindflow"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mindflow} -d ${POSTGRES_DB:-mindflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: mindflow-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -19,19 +71,38 @@ services:
   postgres_test:
     image: postgres:16-alpine
     container_name: mindflow-postgres-test
+    env_file:
+      - .env.test
     environment:
-      POSTGRES_USER: mindflow_test
-      POSTGRES_PASSWORD: mindflow_test
-      POSTGRES_DB: mindflow_test
+      POSTGRES_USER: ${TEST_POSTGRES_USER:-mindflow_test}
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:-mindflow_test}
+      POSTGRES_DB: ${TEST_POSTGRES_DB:-mindflow_test}
+    profiles:
+      - test
     ports:
-      - "5433:5432"
+      - "${TEST_POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mindflow_test"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 5
     tmpfs:
       - /var/lib/postgresql/data
+
+  redis_test:
+    image: redis:7-alpine
+    container_name: mindflow-redis-test
+    env_file:
+      - .env.test
+    profiles:
+      - test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

@@ -107,11 +107,9 @@ class SQLAlchemyPagination:
             filters,
         )
 
-        # Serialize items if response model provided
-        if response_model:
+        serialized_items = items
+        if response_model is not None:
             serialized_items = [response_model.model_validate(item) for item in items]  # type: ignore[attr-defined]
-        else:
-            serialized_items = items
 
         return {
             "items": serialized_items,

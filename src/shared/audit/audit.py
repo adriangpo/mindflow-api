@@ -3,6 +3,7 @@
 import logging
 from contextvars import ContextVar
 from datetime import UTC, date, datetime, time
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -90,6 +91,8 @@ def _serialize_value(value: Any) -> Any:
         return str(value)
     if isinstance(value, StrEnum):
         return value.value
+    if isinstance(value, Decimal):
+        return str(value)
     return value
 
 
@@ -186,6 +189,7 @@ def serialize_model(instance: Any) -> dict[str, Any] | None:
 @event.listens_for(AuditableMixin, "before_update", propagate=True)
 def auditable_before_update(mapper, connection, target):
     """Capture previous state for UPDATE auditing."""
+    _ = mapper, connection
     before_state = serialize_model(target) or {}
     state = inspect(target)
 
@@ -203,18 +207,21 @@ def auditable_before_update(mapper, connection, target):
 @event.listens_for(AuditableMixin, "before_delete", propagate=True)
 def auditable_before_delete(mapper, connection, target):
     """Capture previous state for DELETE auditing."""
+    _ = mapper, connection
     setattr(target, _AUDIT_BEFORE_STATE_ATTR, serialize_model(target))
 
 
 @event.listens_for(AuditableMixin, "after_insert", propagate=True)
 def auditable_after_insert(mapper, connection, target):
     """Create INSERT audit record."""
+    _ = mapper
     _insert_audit_row(connection, target, AuditAction.INSERT, before=None, after=serialize_model(target))
 
 
 @event.listens_for(AuditableMixin, "after_update", propagate=True)
 def auditable_after_update(mapper, connection, target):
     """Create UPDATE audit record."""
+    _ = mapper
     before_state = getattr(target, _AUDIT_BEFORE_STATE_ATTR, None)
     after_state = serialize_model(target)
     _insert_audit_row(connection, target, AuditAction.UPDATE, before=before_state, after=after_state)
@@ -225,6 +232,7 @@ def auditable_after_update(mapper, connection, target):
 @event.listens_for(AuditableMixin, "after_delete", propagate=True)
 def auditable_after_delete(mapper, connection, target):
     """Create DELETE audit record."""
+    _ = mapper
     before_state = getattr(target, _AUDIT_BEFORE_STATE_ATTR, None)
     _insert_audit_row(connection, target, AuditAction.DELETE, before=before_state, after=None)
     if hasattr(target, _AUDIT_BEFORE_STATE_ATTR):
@@ -275,7 +283,7 @@ async def create_audit_log(
         session.add(audit_entry)
         # Note: The session will be committed by the calling code
     except Exception as e:
-        logger.error(f"Failed to create audit log: {e}", exc_info=True)
+        logger.exception("Failed to create audit log: %s", e)
 
 
 # SQLAlchemy event listeners for automatic audit logging

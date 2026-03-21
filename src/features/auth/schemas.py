@@ -4,6 +4,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from src.shared.validators.password import validate_password_strength
 
+AUTH_SCHEME_BEARER = "bearer"
+
 
 # Request schemas
 class UserLoginRequest(BaseModel):
@@ -65,5 +67,5 @@ class TokenResponse(BaseModel):
 
     access_token: str
     refresh_token: str
-    token_type: str = "bearer"
+    token_type: str = AUTH_SCHEME_BEARER
     expires_in: int  # seconds

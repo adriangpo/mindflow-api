@@ -50,7 +50,7 @@ async def admin_docs_middleware(request: Request, call_next):
                         status_code=403,
                         content={"detail": "Insufficient permissions."},
                     )
-        except InvalidTokenException, Exception:
+        except InvalidTokenException:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "Not authenticated."},
