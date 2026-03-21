@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/medical_record` manages tenant-scoped digital medical records, including consultation note registration, patient history visualization, and PDF exports for a single consultation, one patient history, or all patients in the tenant.
+`src/features/medical_record` manages tenant-scoped digital medical records, including consultation note registration, patient history visualization, and async PDF export initiation for a single consultation, one patient history, or all patients in the tenant.
 
 ## Scope
 
@@ -18,6 +18,8 @@ Direct dependencies used by this feature:
 
 - `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
+- `src/features/export/service.py` (async export job creation)
+- `src/features/export/schemas.py` (`ExportJobKind`, `ExportJobResponse`)
 - `src/features/patient/models.py` (`Patient` tenant validation)
 - `src/features/schedule/models.py` (`ScheduleAppointment` optional linkage)
 - `src/features/medical_record/storage.py` (feature-specific export storage paths)
@@ -34,16 +36,18 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as MedicalRecordService
     participant DB as medical_records
+    participant Export as ExportService
 
-    Client->>Router: create/list/get/update/history/export
+    Client->>Router: create/list/get/update/history/export-init
     Router->>Guard: role + tenant membership
     Guard-->>Router: authorized tenant owner
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: business operation
     Service->>DB: tenant-scoped read/write
-    Service-->>Router: model/stored file metadata
-    Router-->>Client: DTO or downloaded application/pdf
+    Router->>Export: create async export job for validated export requests
+    Service-->>Router: model or export validation result
+    Router-->>Client: DTO or 202 ExportJobResponse
 ```
 
 ## Data Model
@@ -151,31 +155,62 @@ Behavior:
 - validates patient and appointment consistency on update
 - if patient changes while appointment remains, appointment must still belong to the new patient
 
-### `GET /api/medical-records/{record_id}/export/pdf`
+### `POST /api/medical-records/{record_id}/export/pdf`
 
-Exports one consultation record as PDF.
-
-Behavior:
-
-- generates the PDF in-memory
-- stores it under `storage/medical-records/exports/<tenant-id>/single/`
-- returns the stored file as a download response
-
-### `GET /api/medical-records/patients/{patient_id}/export/pdf`
-
-Exports a patient's full record history as PDF.
+Queues a single-record PDF export.
 
 Behavior:
 
-- stores it under `storage/medical-records/exports/<tenant-id>/patients/<patient-id>/history/`
+- validates the medical record exists in the current tenant
+- creates an async export job with kind `medical_record_single_pdf`
+- returns generic export job metadata instead of the file bytes
 
-### `GET /api/medical-records/export/pdf`
+Success:
 
-Exports all tenant records as PDF.
+- `202` `ExportJobResponse`
+
+Errors:
+
+- `404` record not found
+- `400`/`401`/`403` access, tenant, or auth failures
+
+### `POST /api/medical-records/patients/{patient_id}/export/pdf`
+
+Queues a patient-history PDF export.
 
 Behavior:
 
-- stores it under `storage/medical-records/exports/<tenant-id>/all/`
+- validates the patient exists in the current tenant
+- validates at least one medical record exists for that patient
+- creates an async export job with kind `medical_record_patient_history_pdf`
+
+Success:
+
+- `202` `ExportJobResponse`
+
+Errors:
+
+- `404` patient not found
+- `404` no medical records exist for that patient
+- `400`/`401`/`403` access, tenant, or auth failures
+
+### `POST /api/medical-records/export/pdf`
+
+Queues an all-records PDF export.
+
+Behavior:
+
+- validates at least one medical record exists in the tenant
+- creates an async export job with kind `medical_record_all_pdf`
+
+Success:
+
+- `202` `ExportJobResponse`
+
+Errors:
+
+- `404` no medical records exist in the tenant
+- `400`/`401`/`403` access, tenant, or auth failures
 
 ## Service Logic
 
@@ -186,6 +221,7 @@ Behavior:
 - appointment existence checks in tenant scope (`is_deleted=false`)
 - patient/appointment consistency rules
 - listing filters (patient, appointment, search, date range)
+- export pre-validation for single, patient-history, and all-record queue requests
 - in-memory PDF generation without external libraries (single and multi-page)
 - export persistence through a segregated storage adapter (`MedicalRecordStorage` -> shared storage backend)
 
@@ -205,11 +241,12 @@ Access and tenancy errors come from shared dependencies (`400/401/403`), and sch
 
 - Write endpoints (`POST`, `PUT`) commit at router boundary.
 - `MedicalRecord` inherits `AuditableMixin`, so create/update operations emit entries into `audit_logs` automatically.
-- Export endpoints are read-only, create runtime directories when needed, store PDFs under `storage/medical-records/...`, and return the stored file download.
+- Export initiation endpoints are read-only from the database perspective, validate exportability, and enqueue a generic export job.
+- Completed files are stored under `storage/medical-records/exports/<tenant-id>/...` by the shared export worker.
 
 ## Frontend Integration Notes
 
 - Send `X-Tenant-ID` header and Bearer token for every endpoint.
 - Only `tenant_owner` role is allowed; `assistant` users receive `403`.
 - `attachments` should be URL strings; the backend does not upload files.
-- Export endpoints return `application/pdf` with `Content-Disposition` for download filename after persisting the file in backend local storage.
+- Export initiation endpoints return `202 ExportJobResponse`; use `/api/exports/{job_id}`, `/api/exports/events`, and `/api/exports/{job_id}/download` for progress and file retrieval.

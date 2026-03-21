@@ -6,9 +6,12 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.features.patient.models import Patient
 from src.features.schedule.models import ScheduleAppointment
 from src.features.schedule.schemas import PaymentStatus
 from src.shared.pagination.pagination import PaginationParams
+from src.shared.pdf import append_wrapped, build_pdf
+from src.shared.storage import StoredFile
 
 from .exceptions import (
     FinanceCustomRangeRequired,
@@ -18,12 +21,14 @@ from .exceptions import (
 )
 from .models import FinancialEntry
 from .schemas import (
+    FinanceReportResponse,
     FinanceReportView,
     FinancialEntryClassification,
     FinancialEntryCreateRequest,
     FinancialEntryReverseRequest,
     FinancialEntryType,
 )
+from .storage import FinanceStorage
 
 ZERO_AMOUNT = Decimal("0.00")
 
@@ -326,3 +331,158 @@ class FinanceService:
             "manual_income_count": manual_income_count,
             "manual_expense_count": manual_expense_count,
         }
+
+    @staticmethod
+    def _coerce_view(value: FinanceReportView | str) -> FinanceReportView:
+        """Normalize finance report view values."""
+        if isinstance(value, FinanceReportView):
+            return value
+        return FinanceReportView(value)
+
+    @staticmethod
+    def _coerce_date(value: date | str | None) -> date | None:
+        """Normalize finance export date values."""
+        if value is None or isinstance(value, date):
+            return value
+        return date.fromisoformat(value)
+
+    @staticmethod
+    async def _list_manual_entries(
+        session: AsyncSession,
+        *,
+        start_date: date | None,
+        end_date: date | None,
+    ) -> list[FinancialEntry]:
+        """List manual entries for finance export detail output."""
+        tenant_id = FinanceService._require_tenant_id(session)
+        stmt = (
+            select(FinancialEntry)
+            .where(
+                FinancialEntry.tenant_id == tenant_id,
+                FinancialEntry.is_reversed.is_(False),
+            )
+            .order_by(FinancialEntry.occurred_on.desc(), FinancialEntry.id.desc())
+        )
+
+        if start_date is not None:
+            stmt = stmt.where(FinancialEntry.occurred_on >= start_date)
+        if end_date is not None:
+            stmt = stmt.where(FinancialEntry.occurred_on <= end_date)
+
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def _list_paid_appointments(
+        session: AsyncSession,
+        *,
+        start_date: date | None,
+        end_date: date | None,
+    ) -> list[tuple[ScheduleAppointment, str]]:
+        """List paid appointments for finance export detail output."""
+        tenant_id = FinanceService._require_tenant_id(session)
+        stmt = (
+            select(ScheduleAppointment, Patient.full_name)
+            .join(Patient, Patient.id == ScheduleAppointment.patient_id)
+            .where(
+                ScheduleAppointment.tenant_id == tenant_id,
+                ScheduleAppointment.is_deleted.is_(False),
+                ScheduleAppointment.payment_status == PaymentStatus.PAID.value,
+                ScheduleAppointment.paid_at.is_not(None),
+            )
+            .order_by(ScheduleAppointment.paid_at.desc(), ScheduleAppointment.id.desc())
+        )
+
+        if start_date is not None:
+            start_dt = datetime.combine(start_date, time.min, tzinfo=UTC)
+            stmt = stmt.where(ScheduleAppointment.paid_at >= start_dt)
+        if end_date is not None:
+            end_dt = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+            stmt = stmt.where(ScheduleAppointment.paid_at < end_dt)
+
+        result = await session.execute(stmt)
+        return list(result.tuples().all())
+
+    @staticmethod
+    async def export_report_pdf(
+        session: AsyncSession,
+        *,
+        view: FinanceReportView | str,
+        reference_date: date | str | None,
+        start_date: date | str | None,
+        end_date: date | str | None,
+    ) -> StoredFile:
+        """Export a finance summary report with detail sections as PDF."""
+        resolved_view = FinanceService._coerce_view(view)
+        resolved_reference_date = FinanceService._coerce_date(reference_date)
+        resolved_start_date = FinanceService._coerce_date(start_date)
+        resolved_end_date = FinanceService._coerce_date(end_date)
+
+        report = await FinanceService.build_report(
+            session,
+            view=resolved_view,
+            reference_date=resolved_reference_date,
+            start_date=resolved_start_date,
+            end_date=resolved_end_date,
+        )
+        report_data = FinanceReportResponse.model_validate(report)
+        manual_entries = await FinanceService._list_manual_entries(
+            session,
+            start_date=report_data.range_start,
+            end_date=report_data.range_end,
+        )
+        paid_appointments = await FinanceService._list_paid_appointments(
+            session,
+            start_date=report_data.range_start,
+            end_date=report_data.range_end,
+        )
+
+        lines: list[str] = [
+            "Summary",
+            f"View: {report_data.view}",
+            f"Range Start: {report_data.range_start}",
+            f"Range End: {report_data.range_end}",
+            f"Automatic Income Total: {report_data.automatic_income_total}",
+            f"Manual Income Total: {report_data.manual_income_total}",
+            f"Manual Expense Total: {report_data.manual_expense_total}",
+            f"Total Income: {report_data.total_income}",
+            f"Total Expense: {report_data.total_expense}",
+            f"Net Total: {report_data.net_total}",
+            f"Paid Appointments Count: {report_data.paid_appointments_count}",
+            f"Manual Income Count: {report_data.manual_income_count}",
+            f"Manual Expense Count: {report_data.manual_expense_count}",
+            "",
+            "Manual Entries",
+        ]
+
+        if not manual_entries:
+            lines.append("No manual entries available")
+        for entry in manual_entries:
+            lines.append(f"Entry ID: {entry.id}")
+            append_wrapped(lines, "Occurred On", str(entry.occurred_on))
+            append_wrapped(lines, "Type", entry.entry_type)
+            append_wrapped(lines, "Classification", entry.classification)
+            append_wrapped(lines, "Description", entry.description)
+            append_wrapped(lines, "Amount", f"{entry.amount:.2f}")
+            append_wrapped(lines, "Notes", entry.notes or "None")
+            lines.append("")
+
+        lines.append("Paid Appointments")
+        if not paid_appointments:
+            lines.append("No paid appointments available")
+        for appointment, patient_name in paid_appointments:
+            lines.append(f"Appointment ID: {appointment.id}")
+            append_wrapped(lines, "Patient", patient_name)
+            append_wrapped(lines, "Starts At", appointment.starts_at.astimezone(UTC).isoformat())
+            append_wrapped(
+                lines, "Paid At", appointment.paid_at.astimezone(UTC).isoformat() if appointment.paid_at else "None"
+            )
+            append_wrapped(lines, "Charge Amount", f"{appointment.charge_amount:.2f}")
+            append_wrapped(lines, "Status", appointment.status)
+            append_wrapped(lines, "Payment Status", appointment.payment_status)
+            lines.append("")
+
+        tenant_id = FinanceService._require_tenant_id(session)
+        pdf_bytes = build_pdf("Finance Report Export", lines)
+        filename = f"finance-report-{resolved_view.value}.pdf"
+        return FinanceStorage().store_report_export(tenant_id, filename, pdf_bytes)

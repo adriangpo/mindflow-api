@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, due dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events.
+`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, manual dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events. Runtime scheduling and delivery coordination are Redis-backed, while `notification_messages` remains the persisted history and final delivery-state source.
 
 ## Scope
 
@@ -15,6 +15,7 @@ Documented feature files:
 - `src/features/notification/exceptions.py`
 - `src/features/notification/delivery.py`
 - `src/features/notification/runtime.py`
+- `src/features/notification/queue.py`
 
 Direct dependencies used by this feature:
 
@@ -27,6 +28,7 @@ Direct dependencies used by this feature:
 - `src/features/user/models.py` (`User` tenant assignment and active status)
 - `src/features/tenant/models.py` (`Tenant` iteration for background dispatch)
 - `src/shared/pagination/pagination.py` (`PaginationParams`)
+- `src/shared/redis/client.py` (`commit_with_staged_redis`, stream/ZSET helpers)
 - `src/config/settings.py` (background dispatch and provider settings)
 
 ## Request Flow
@@ -39,6 +41,7 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as NotificationService
     participant DB as settings + profiles + messages
+    participant Redis as schedule ZSET + delivery streams
     participant Backend as delivery backend
 
     Client->>Router: get/update settings or profiles, list messages, dispatch due
@@ -48,8 +51,10 @@ sequenceDiagram
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: business operation
     Service->>DB: read/write tenant-scoped records
-    Service->>Backend: send due WhatsApp messages
-    Backend-->>Service: delivery result
+    Service->>Redis: stage schedule or delivery operations
+    Router->>Redis: flush staged operations after commit
+    Redis->>Backend: runtime delivers due messages
+    Backend-->>DB: mark sent or failed
     Service-->>Router: DTO/result
     Router-->>Client: response
 ```
@@ -182,6 +187,12 @@ Delivery backend configuration:
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM_NUMBER`
 - `NOTIFICATION_DEFAULT_COUNTRY_CODE` is prepended to stored local phone digits before Twilio delivery
 
+Runtime Redis keys:
+
+- `notifications:schedule`: sorted set for future reminder message ids
+- `notifications:deliveries:{tenant_id}`: per-tenant delivery stream
+- `notifications:workers`: consumer group name for delivery workers
+
 ## Access Rules
 
 All `/api/notifications/*` endpoints require:
@@ -218,7 +229,7 @@ Behavior:
 
 - upserts the single tenant settings row
 - rebuilds reminder outbox entries for future appointments in the tenant
-- dispatches any reminder that becomes due immediately after the update
+- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -255,7 +266,7 @@ Behavior:
 
 - upserts the preference row
 - rebuilds reminder outbox entries for that patient's future appointments
-- dispatches any reminder that becomes due immediately after the update
+- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -294,7 +305,7 @@ Behavior:
 
 - upserts the profile row
 - rebuilds reminder outbox entries for future appointments in the tenant
-- dispatches any reminder that becomes due immediately after the update
+- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -340,9 +351,10 @@ Request body:
 
 Behavior:
 
-- selects pending records with `scheduled_for <= now`
+- promotes due reminder ids from `notifications:schedule` into the current tenant delivery stream
+- drains due work from `notifications:deliveries:{tenant_id}`
 - uses the configured delivery backend
-- marks each record as `sent` or `failed`
+- marks each processed DB record as `sent` or `failed`
 
 Success:
 
@@ -360,54 +372,55 @@ Errors:
 - creates or updates the tenant settings row
 - applies defaults when the row does not exist yet
 - resynchronizes reminder messages for all future appointments in the tenant
-- dispatches any newly due message immediately
+- stages Redis schedule and delivery mutations in `session.info`
+- router flushes staged Redis operations only after commit succeeds
 
 ### `upsert_patient_preference(session, patient_id, data)`
 
 - validates patient existence in tenant scope
 - upserts the patient override row
 - rebuilds future reminders for that patient's appointments
-- dispatches newly due reminders immediately
+- stages Redis schedule and delivery mutations in `session.info`
 
 ### `upsert_user_profile(session, user_id, data)`
 
 - validates the user exists and is assigned to the current tenant
 - upserts the user delivery profile
 - rebuilds future reminder messages in the tenant
-- dispatches newly due reminders immediately
+- stages Redis schedule and delivery mutations in `session.info`
 
 ### `handle_appointment_created(session, appointment)`
 
 - queues immediate confirmation messages for eligible patient and user recipients
 - queues reminder messages using tenant defaults and patient overrides
-- dispatches due messages for that appointment immediately
+- stages immediate deliveries into the tenant Redis stream
+- stages future reminders into the Redis schedule sorted set
 
 ### `handle_appointment_updated(session, appointment)`
 
 - queues immediate update messages for eligible recipients
 - cancels and rebuilds pending reminder messages for that appointment
-- dispatches due messages for that appointment immediately
+- stages schedule removals plus replacement delivery/schedule operations in Redis
 
 ### `handle_appointment_canceled(session, appointment)`
 
 - cancels pending reminder messages for that appointment
 - queues immediate cancellation messages for eligible recipients
-- dispatches due messages for that appointment immediately
+- stages reminder removals and immediate cancellation deliveries in Redis
 
 ### `dispatch_due_messages(session, limit, appointment_id=None)`
 
-- selects pending records in tenant scope ordered by `scheduled_for asc, id asc`
-- locks rows with `FOR UPDATE SKIP LOCKED`
-- resolves the delivery backend from settings (`auto`, `stub`, or `twilio`)
-- uses Twilio `messages.create(...)` when Twilio is configured
-- builds patient-facing and user-facing WhatsApp text in Brazilian Portuguese using `DD/MM/YYYY às HH:MM UTC`
+- promotes due scheduled reminders from Redis into the per-tenant delivery stream
+- processes a delivery batch for the current tenant
+- reuses the current test session when `TESTING=true`; otherwise runtime delivery uses independent worker sessions
 - stores `sent_at`, `failed_at`, `failure_reason`, `attempt_count`, and `provider_message_id`
 
-### `run_notification_dispatch_loop()`
+### `run_notification_runtime()`
 
 - runs in app lifespan when `notification_background_dispatch_enabled=true` and `testing=false`
-- iterates active tenants, sets tenant RLS context, and dispatches due messages per tenant
-- sleeps for `notification_dispatch_interval_seconds` between iterations
+- runs both:
+  - a scheduler loop that moves due reminder ids from `notifications:schedule` into tenant delivery streams
+  - a delivery loop that iterates active tenants, reads `notifications:deliveries:{tenant_id}`, claims stale entries with `XAUTOCLAIM`, and sends them
 
 ## Error Handling
 
@@ -432,10 +445,13 @@ Backend-originated delivery failures:
 
 - schedule create, update, cancel, no-show, completed, and delete flows now also maintain notification outbox state.
 - future reminder rows are rebuilt whenever tenant settings, patient overrides, user profiles, or appointment timing change.
+- Redis coordinates runtime delivery only; `notification_messages` remains the list/history API and final status store.
+- immediate notifications are staged into per-tenant Redis streams after commit.
+- future reminders are staged into `notifications:schedule` after commit and later promoted by the scheduler loop.
 - delivery backend supports Twilio WhatsApp in `src/features/notification/delivery.py`.
 - `NOTIFICATION_PROVIDER=auto` falls back to the internal stub backend until the required Twilio env vars are present.
 - Twilio delivery formats outbound numbers as `whatsapp:+E164`; stored local digits are prefixed with `NOTIFICATION_DEFAULT_COUNTRY_CODE`.
-- background dispatch is disabled automatically in test mode (`TESTING=true`) to keep tests deterministic.
+- background notification runtime is disabled automatically in test mode (`TESTING=true`) to keep tests deterministic.
 
 ## Frontend Integration Notes
 
@@ -443,3 +459,4 @@ Backend-originated delivery failures:
 - Patient notifications use `patients.phone_number` by default. Use `/patients/{patient_id}` when a separate notification phone is needed or when reminder timing differs for one patient.
 - Use `/messages` to render notification history, troubleshoot failed deliveries, or inspect pending reminders.
 - `pending` means queued but not yet due or not yet dispatched; `canceled` means the reminder was invalidated by appointment/state changes.
+- `POST /api/notifications/dispatch` is tenant-scoped and only drains work for the current tenant.

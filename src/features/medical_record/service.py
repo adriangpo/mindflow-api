@@ -353,6 +353,35 @@ class MedicalRecordService:
         return await MedicalRecordService._require_record(session, record_id)
 
     @staticmethod
+    async def validate_record_export(session: AsyncSession, record_id: int) -> None:
+        """Validate that a single-record export can be queued."""
+        await MedicalRecordService.require_record(session, record_id)
+
+    @staticmethod
+    async def validate_patient_history_export(session: AsyncSession, patient_id: int) -> None:
+        """Validate that a patient-history export can be queued."""
+        await MedicalRecordService._require_patient(session, patient_id)
+        tenant_id = MedicalRecordService._require_tenant_id(session)
+        result = await session.execute(
+            select(MedicalRecord.id)
+            .where(
+                MedicalRecord.tenant_id == tenant_id,
+                MedicalRecord.patient_id == patient_id,
+            )
+            .limit(1)
+        )
+        if result.scalar_one_or_none() is None:
+            raise MedicalRecordExportEmpty()
+
+    @staticmethod
+    async def validate_all_records_export(session: AsyncSession) -> None:
+        """Validate that an all-records export can be queued."""
+        tenant_id = MedicalRecordService._require_tenant_id(session)
+        result = await session.execute(select(MedicalRecord.id).where(MedicalRecord.tenant_id == tenant_id).limit(1))
+        if result.scalar_one_or_none() is None:
+            raise MedicalRecordExportEmpty()
+
+    @staticmethod
     async def _patient_name_map(session: AsyncSession, patient_ids: set[int]) -> dict[int, str]:
         """Build a patient id -> full name map for export output."""
         if not patient_ids:

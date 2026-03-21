@@ -60,10 +60,21 @@ class Settings(BaseSettings):
     # Local file storage
     storage_root: Path = Path("storage")
 
+    # Redis
+    redis_url: str = "redis://localhost:6379/0"
+
+    # Exports
+    export_worker_enabled: bool = True
+    export_worker_block_ms: int = 1000
+    export_worker_claim_idle_ms: int = 30000
+    export_sse_keepalive_seconds: int = 15
+
     # Notifications
     notification_provider: str = "auto"
     notification_background_dispatch_enabled: bool = True
     notification_dispatch_interval_seconds: int = 60
+    notification_delivery_block_ms: int = 1000
+    notification_delivery_claim_idle_ms: int = 30000
     notification_default_country_code: str = "+55"
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""

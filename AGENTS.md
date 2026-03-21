@@ -27,8 +27,8 @@ Core runtime composition (`src/main.py`):
 - Middleware: SlowAPI, admin docs middleware, CORS, tenant header extraction, audit context middleware
 - Router groups:
 - Public routers: `auth`, `user`, `tenant`
-- Tenant-protected routers: `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`
-- Lifespan hooks initialize database resources, optionally start the notification dispatch loop, and close resources on shutdown
+- Tenant-protected routers: `export`, `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`
+- Lifespan hooks initialize database and Redis resources, optionally start the export worker and notification runtime, and close resources on shutdown
 
 Layer responsibilities:
 
@@ -93,6 +93,7 @@ Current feature modules in `src/features/`:
 - `auth`
 - `user`
 - `tenant`
+- `export`
 - `finance`
 - `notification`
 - `schedule_config`
@@ -112,6 +113,8 @@ Auth intentionally includes extra modules:
 
 - `dependencies.py`
 - `jwt_utils.py`
+
+Export intentionally omits `models.py` and `exceptions.py` because its runtime state is Redis-backed and feature errors reuse shared HTTP exceptions from the service layer.
 
 ---
 
@@ -143,12 +146,16 @@ Shared modules currently used by features:
 - `src/shared/audit/audit_middleware.py`
 - `src/shared/middlewares/docs_middleware.py`
 - `src/shared/storage/backends.py`
+- `src/shared/redis/client.py`
+- `src/shared/redis/session_ops.py`
+- `src/shared/pdf/builder.py`
 
 Usage rules:
 
 - Reuse shared validators and dependencies before adding new helpers.
 - Keep auth-specific logic centralized in `src/features/auth/`.
 - Local file persistence must go through a segregated storage backend abstraction under `src/shared/storage/`; do not couple features directly to raw filesystem paths when the behavior may later move to S3-compatible storage.
+- Redis-backed queueing/scheduling coordination must go through the shared helpers in `src/shared/redis/`; do not inline ad hoc Redis transaction logic in routers.
 - Medical record PDF exports are stored under `storage/medical-records/exports/<tenant-id>/...`; create directories at runtime when absent.
 
 Audit mixin implementation details:
@@ -317,7 +324,7 @@ Docker:
 - `make docker-start`
 - `make docker-up`
 - `make docker-down`
-- `make docker-test-up`
+- `make docker-test-up` (starts PostgreSQL + Redis test services)
 - `make docker-test-down`
 - `make docker-test-reset`
 

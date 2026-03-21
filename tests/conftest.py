@@ -8,6 +8,8 @@ Optimized test setup using transaction rollback strategy with multi-tenancy supp
 5. Multi-tenancy is supported via tenant_id fixtures and RLS enforcement
 """
 
+# ruff: noqa: E402
+
 import asyncio
 import os
 import subprocess
@@ -23,16 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.config.settings import settings
-from src.database import client as db_module
-from src.database.client import set_tenant_context
-from src.database.dependencies import get_db_session, get_tenant_db_session
-from src.features.auth.dependencies import get_current_active_user, get_current_user
-from src.features.tenant.models import Tenant
-from src.features.user.models import User, UserRole, UserStatus
-from src.main import app
-
-# Load test environment variables
+# Load test environment variables before importing application settings/modules.
 test_env_path = Path(__file__).parent.parent / ".env.test"
 load_dotenv(test_env_path, override=True)
 
@@ -81,9 +74,28 @@ def _resolve_test_db_url() -> str:
     return "postgresql+asyncpg://mindflow_test:mindflow_test@localhost:5433/mindflow_test"
 
 
-# Set test environment
+def _resolve_test_redis_url() -> str:
+    """Resolve the Redis URL used by tests."""
+    explicit_test_url = os.getenv("TEST_REDIS_URL")
+    if explicit_test_url:
+        return explicit_test_url
+    return "redis://localhost:6380/0"
+
+
+# Set test environment before importing application modules.
 os.environ["TESTING"] = "true"
 os.environ["POSTGRES_URL"] = _resolve_test_db_url()
+os.environ["REDIS_URL"] = _resolve_test_redis_url()
+
+from src.config.settings import settings
+from src.database import client as db_module
+from src.database.client import set_tenant_context
+from src.database.dependencies import get_db_session, get_tenant_db_session
+from src.features.auth.dependencies import get_current_active_user, get_current_user
+from src.features.tenant.models import Tenant
+from src.features.user.models import User, UserRole, UserStatus
+from src.main import app
+from src.shared.redis import close_redis, get_redis, init_redis
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -170,6 +182,17 @@ async def db_engine(event_loop, apply_test_migrations) -> AsyncGenerator[AsyncEn
     await engine.dispose()
 
 
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def redis_client() -> AsyncGenerator:
+    """Initialize the shared Redis client once for the test session."""
+    await init_redis()
+    redis = get_redis()
+    await redis.flushdb()
+    yield redis
+    await redis.flushdb()
+    await close_redis()
+
+
 # Database Fixtures - Function Scope (Per Test with Rollback)
 
 
@@ -185,6 +208,14 @@ async def db_connection(db_engine: AsyncEngine) -> AsyncGenerator[AsyncConnectio
             yield connection
         finally:
             await transaction.rollback()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clear_redis_between_tests(redis_client):
+    """Keep Redis state isolated between tests."""
+    await redis_client.flushdb()
+    yield
+    await redis_client.flushdb()
 
 
 @pytest_asyncio.fixture

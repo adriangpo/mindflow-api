@@ -8,6 +8,7 @@ import pytest
 from fastapi import status
 
 from src.features.auth.dependencies import get_current_active_user, get_current_user
+from src.features.export.service import ExportService
 from src.features.patient.exceptions import PatientCpfAlreadyExists
 from src.features.patient.schemas import (
     PatientCompleteRegistrationRequest,
@@ -428,3 +429,26 @@ class TestPatientAPI:
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["is_active"] is True
+
+    async def test_export_patient_complete_pdf(self, auth_client, session, isolated_storage_root):
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
+
+        create_response = await client.post(
+            "/api/patients",
+            json=_patient_payload(),
+        )
+        assert create_response.status_code == status.HTTP_200_OK
+        patient_id = create_response.json()["id"]
+
+        export_response = await client.post(f"/api/patients/{patient_id}/export/pdf")
+        assert export_response.status_code == status.HTTP_202_ACCEPTED
+
+        await ExportService.process_job(export_response.json()["id"], session=session)
+
+        download_response = await client.get(f"/api/exports/{export_response.json()['id']}/download")
+        assert download_response.status_code == status.HTTP_200_OK
+        assert download_response.headers["content-type"].startswith("application/pdf")
+        assert download_response.content.startswith(b"%PDF-1.4")
+        stored_files = list(isolated_storage_root.rglob("*.pdf"))
+        assert stored_files

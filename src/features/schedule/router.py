@@ -10,6 +10,7 @@ from src.features.auth.dependencies import require_role, require_tenant_membersh
 from src.features.schedule_config.schemas import WeekDay
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
+from src.shared.redis import commit_with_staged_redis
 
 from .schemas import (
     AppointmentHistoryEvent,
@@ -68,7 +69,7 @@ async def create_appointment(
 ):
     """Create a new consultation appointment."""
     appointment = await ScheduleService.create_appointment(session, current_user.id, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     await session.refresh(appointment)
     return ScheduleAppointmentResponse.model_validate(appointment)
 
@@ -136,7 +137,7 @@ async def update_appointment(
     """Update appointment details and reschedule when datetime changes."""
     appointment = await ScheduleService.require_appointment(session, appointment_id)
     updated = await ScheduleService.update_appointment(session, current_user.id, appointment, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     await session.refresh(updated)
     return ScheduleAppointmentResponse.model_validate(updated)
 
@@ -151,7 +152,7 @@ async def update_appointment_status(
     """Update appointment consultation status."""
     appointment = await ScheduleService.require_appointment(session, appointment_id)
     updated = await ScheduleService.update_appointment_status(session, current_user.id, appointment, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     await session.refresh(updated)
     return ScheduleAppointmentResponse.model_validate(updated)
 
@@ -172,7 +173,7 @@ async def update_appointment_payment_status(
         payment_status=data.payment_status,
         reason=data.reason,
     )
-    await session.commit()
+    await commit_with_staged_redis(session)
     await session.refresh(updated)
     return ScheduleAppointmentResponse.model_validate(updated)
 
@@ -187,7 +188,7 @@ async def delete_appointment(
     """Soft-delete an appointment in exceptional error scenarios."""
     appointment = await ScheduleService.require_appointment(session, appointment_id, include_deleted=True)
     await ScheduleService.delete_appointment(session, current_user.id, appointment, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     return {"message": "Appointment deleted successfully"}
 
 

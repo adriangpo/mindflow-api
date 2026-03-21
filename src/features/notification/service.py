@@ -7,13 +7,13 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.features.patient.models import Patient
 from src.features.schedule.models import ScheduleAppointment
 from src.features.schedule.schemas import AppointmentStatus
 from src.features.user.models import User, UserStatus
 from src.shared.pagination.pagination import PaginationParams
 
-from .delivery import NotificationDeliveryError, get_notification_delivery_backend
 from .exceptions import (
     NotificationPatientNotFound,
     NotificationUserNotAssignedToTenant,
@@ -25,6 +25,8 @@ from .models import (
     NotificationSettings,
     NotificationUserProfile,
 )
+from .queue import stage_notification_delivery, stage_notification_schedule, stage_notification_schedule_removal
+from .runtime import dispatch_due_messages_now
 from .schemas import (
     NotificationChannel,
     NotificationEventType,
@@ -141,7 +143,6 @@ class NotificationService:
 
         await session.flush()
         await NotificationService.sync_future_reminders_for_tenant(session)
-        await NotificationService.dispatch_due_messages(session, limit=100)
         return settings_model
 
     @staticmethod
@@ -251,7 +252,6 @@ class NotificationService:
 
         await session.flush()
         await NotificationService.sync_future_reminders_for_patient(session, patient.id)
-        await NotificationService.dispatch_due_messages(session, limit=100)
         return preference
 
     @staticmethod
@@ -324,7 +324,6 @@ class NotificationService:
 
         await session.flush()
         await NotificationService.sync_future_reminders_for_tenant(session)
-        await NotificationService.dispatch_due_messages(session, limit=100)
         return profile
 
     @staticmethod
@@ -487,7 +486,7 @@ class NotificationService:
         scheduled_for: datetime,
         patient_id: int | None,
         recipient_user_id: int | None,
-    ) -> None:
+    ) -> NotificationMessage:
         message = NotificationMessage(
             tenant_id=NotificationService._require_tenant_id(session),
             appointment_id=appointment.id,
@@ -502,6 +501,21 @@ class NotificationService:
             scheduled_for=scheduled_for,
         )
         session.add(message)
+        return message
+
+    @staticmethod
+    def _stage_created_messages(session: AsyncSession, messages: list[NotificationMessage]) -> None:
+        """Stage Redis delivery/schedule operations for newly flushed messages."""
+        if not messages:
+            return
+
+        tenant_id = NotificationService._require_tenant_id(session)
+        now = datetime.now(UTC)
+        for message in messages:
+            if message.scheduled_for <= now:
+                stage_notification_delivery(session, tenant_id, message.id)
+            else:
+                stage_notification_schedule(session, tenant_id, message.id, message.scheduled_for)
 
     @staticmethod
     async def _queue_event_notifications(
@@ -521,25 +535,28 @@ class NotificationService:
             return
 
         send_at = datetime.now(UTC)
+        created_messages: list[NotificationMessage] = []
 
         if settings.patient_notifications_enabled:
             patient_target = await NotificationService._resolve_patient_target(session, patient, settings)
             if patient_target is not None:
-                NotificationService._enqueue_message(
-                    session,
-                    appointment=appointment,
-                    event_type=event_type,
-                    recipient_type=NotificationRecipientType.PATIENT,
-                    destination=patient_target.destination,
-                    content=NotificationService._build_message_content(
+                created_messages.append(
+                    NotificationService._enqueue_message(
+                        session,
+                        appointment=appointment,
                         event_type=event_type,
                         recipient_type=NotificationRecipientType.PATIENT,
-                        appointment=appointment,
-                        patient_name=patient.full_name,
-                    ),
-                    scheduled_for=send_at,
-                    patient_id=patient.id,
-                    recipient_user_id=None,
+                        destination=patient_target.destination,
+                        content=NotificationService._build_message_content(
+                            event_type=event_type,
+                            recipient_type=NotificationRecipientType.PATIENT,
+                            appointment=appointment,
+                            patient_name=patient.full_name,
+                        ),
+                        scheduled_for=send_at,
+                        patient_id=patient.id,
+                        recipient_user_id=None,
+                    )
                 )
 
         if settings.user_notifications_enabled:
@@ -548,22 +565,28 @@ class NotificationService:
                 require_appointment_notifications=True,
             )
             for profile in user_profiles:
-                NotificationService._enqueue_message(
-                    session,
-                    appointment=appointment,
-                    event_type=event_type,
-                    recipient_type=NotificationRecipientType.USER,
-                    destination=profile.contact_phone or "",
-                    content=NotificationService._build_message_content(
+                created_messages.append(
+                    NotificationService._enqueue_message(
+                        session,
+                        appointment=appointment,
                         event_type=event_type,
                         recipient_type=NotificationRecipientType.USER,
-                        appointment=appointment,
-                        patient_name=patient.full_name,
-                    ),
-                    scheduled_for=send_at,
-                    patient_id=patient.id,
-                    recipient_user_id=profile.user_id,
+                        destination=profile.contact_phone or "",
+                        content=NotificationService._build_message_content(
+                            event_type=event_type,
+                            recipient_type=NotificationRecipientType.USER,
+                            appointment=appointment,
+                            patient_name=patient.full_name,
+                        ),
+                        scheduled_for=send_at,
+                        patient_id=patient.id,
+                        recipient_user_id=profile.user_id,
+                    )
                 )
+
+        if created_messages:
+            await session.flush()
+            NotificationService._stage_created_messages(session, created_messages)
 
     @staticmethod
     async def _cancel_pending_messages(
@@ -573,8 +596,9 @@ class NotificationService:
         event_type: NotificationEventType | None = None,
     ) -> None:
         now = datetime.now(UTC)
+        tenant_id = NotificationService._require_tenant_id(session)
         stmt = update(NotificationMessage).where(
-            NotificationMessage.tenant_id == NotificationService._require_tenant_id(session),
+            NotificationMessage.tenant_id == tenant_id,
             NotificationMessage.appointment_id == appointment_id,
             NotificationMessage.status == NotificationMessageStatus.PENDING.value,
         )
@@ -585,8 +609,10 @@ class NotificationService:
             status=NotificationMessageStatus.CANCELED.value,
             canceled_at=now,
             updated_at=now,
-        )
-        await session.execute(stmt)
+        ).returning(NotificationMessage.id)
+        result = await session.execute(stmt)
+        canceled_ids = list(result.scalars().all())
+        stage_notification_schedule_removal(session, tenant_id, canceled_ids)
 
     @staticmethod
     async def _sync_appointment_reminders(
@@ -611,45 +637,55 @@ class NotificationService:
         if not settings.reminders_enabled:
             return
 
+        created_messages: list[NotificationMessage] = []
         if settings.patient_notifications_enabled:
             patient_target = await NotificationService._resolve_patient_target(session, patient, settings)
             if patient_target is not None:
-                NotificationService._enqueue_message(
-                    session,
-                    appointment=appointment,
-                    event_type=NotificationEventType.APPOINTMENT_REMINDER,
-                    recipient_type=NotificationRecipientType.PATIENT,
-                    destination=patient_target.destination,
-                    content=NotificationService._build_message_content(
+                created_messages.append(
+                    NotificationService._enqueue_message(
+                        session,
+                        appointment=appointment,
                         event_type=NotificationEventType.APPOINTMENT_REMINDER,
                         recipient_type=NotificationRecipientType.PATIENT,
-                        appointment=appointment,
-                        patient_name=patient.full_name,
-                    ),
-                    scheduled_for=appointment.starts_at - timedelta(minutes=patient_target.reminder_minutes_before),
-                    patient_id=patient.id,
-                    recipient_user_id=None,
+                        destination=patient_target.destination,
+                        content=NotificationService._build_message_content(
+                            event_type=NotificationEventType.APPOINTMENT_REMINDER,
+                            recipient_type=NotificationRecipientType.PATIENT,
+                            appointment=appointment,
+                            patient_name=patient.full_name,
+                        ),
+                        scheduled_for=appointment.starts_at - timedelta(minutes=patient_target.reminder_minutes_before),
+                        patient_id=patient.id,
+                        recipient_user_id=None,
+                    )
                 )
 
         if settings.user_notifications_enabled:
             user_profiles = await NotificationService._list_user_profiles(session, require_reminders=True)
             for profile in user_profiles:
-                NotificationService._enqueue_message(
-                    session,
-                    appointment=appointment,
-                    event_type=NotificationEventType.APPOINTMENT_REMINDER,
-                    recipient_type=NotificationRecipientType.USER,
-                    destination=profile.contact_phone or "",
-                    content=NotificationService._build_message_content(
+                created_messages.append(
+                    NotificationService._enqueue_message(
+                        session,
+                        appointment=appointment,
                         event_type=NotificationEventType.APPOINTMENT_REMINDER,
                         recipient_type=NotificationRecipientType.USER,
-                        appointment=appointment,
-                        patient_name=patient.full_name,
-                    ),
-                    scheduled_for=appointment.starts_at - timedelta(minutes=settings.default_reminder_minutes_before),
-                    patient_id=patient.id,
-                    recipient_user_id=profile.user_id,
+                        destination=profile.contact_phone or "",
+                        content=NotificationService._build_message_content(
+                            event_type=NotificationEventType.APPOINTMENT_REMINDER,
+                            recipient_type=NotificationRecipientType.USER,
+                            appointment=appointment,
+                            patient_name=patient.full_name,
+                        ),
+                        scheduled_for=appointment.starts_at
+                        - timedelta(minutes=settings.default_reminder_minutes_before),
+                        patient_id=patient.id,
+                        recipient_user_id=profile.user_id,
+                    )
                 )
+
+        if created_messages:
+            await session.flush()
+            NotificationService._stage_created_messages(session, created_messages)
 
     @staticmethod
     async def handle_appointment_created(
@@ -668,7 +704,6 @@ class NotificationService:
         )
         await NotificationService._sync_appointment_reminders(session, appointment, patient=patient, settings=settings)
         await session.flush()
-        await NotificationService.dispatch_due_messages(session, limit=25, appointment_id=appointment.id)
 
     @staticmethod
     async def handle_appointment_updated(
@@ -687,7 +722,6 @@ class NotificationService:
         )
         await NotificationService._sync_appointment_reminders(session, appointment, patient=patient, settings=settings)
         await session.flush()
-        await NotificationService.dispatch_due_messages(session, limit=25, appointment_id=appointment.id)
 
     @staticmethod
     async def handle_appointment_canceled(
@@ -710,7 +744,6 @@ class NotificationService:
             NotificationEventType.APPOINTMENT_CANCELED,
         )
         await session.flush()
-        await NotificationService.dispatch_due_messages(session, limit=25, appointment_id=appointment.id)
 
     @staticmethod
     async def clear_appointment_notifications(session: AsyncSession, appointment_id: int) -> None:
@@ -725,62 +758,11 @@ class NotificationService:
         limit: int,
         appointment_id: int | None = None,
     ) -> dict[str, int]:
-        """Dispatch due pending notifications within the current tenant."""
+        """Dispatch due pending notifications using the Redis-backed runtime."""
+        _ = appointment_id
         tenant_id = NotificationService._require_tenant_id(session)
-        now = datetime.now(UTC)
-
-        stmt = (
-            select(NotificationMessage)
-            .where(
-                NotificationMessage.tenant_id == tenant_id,
-                NotificationMessage.status == NotificationMessageStatus.PENDING.value,
-                NotificationMessage.scheduled_for <= now,
-            )
-            .order_by(NotificationMessage.scheduled_for.asc(), NotificationMessage.id.asc())
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        )
-        if appointment_id is not None:
-            stmt = stmt.where(NotificationMessage.appointment_id == appointment_id)
-
-        result = await session.execute(stmt)
-        messages = list(result.scalars().all())
-
-        sent_count = 0
-        failed_count = 0
-        delivery_backend = get_notification_delivery_backend()
-
-        for message in messages:
-            attempt_time = datetime.now(UTC)
-            message.attempt_count += 1
-
-            try:
-                delivery_result = await delivery_backend.send_whatsapp(
-                    destination=message.destination,
-                    content=message.content,
-                )
-            except NotificationDeliveryError as exc:
-                message.status = NotificationMessageStatus.FAILED.value
-                message.failed_at = attempt_time
-                message.failure_reason = str(exc)[:500]
-                failed_count += 1
-                continue
-
-            message.status = NotificationMessageStatus.SENT.value
-            message.sent_at = attempt_time
-            message.failed_at = None
-            message.failure_reason = None
-            message.provider_message_id = delivery_result.provider_message_id
-            sent_count += 1
-
-        if messages:
-            await session.flush()
-
-        return {
-            "processed_count": len(messages),
-            "sent_count": sent_count,
-            "failed_count": failed_count,
-        }
+        runtime_session = session if settings.testing else None
+        return await dispatch_due_messages_now(tenant_id, limit=limit, session=runtime_session)
 
     @staticmethod
     async def _list_future_appointments(

@@ -17,10 +17,12 @@ from src.config.cors_config import CORSConfigurationError
 from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
+from src.features.export.router import router as export_router
+from src.features.export.runtime import run_export_worker_loop
 from src.features.finance.router import router as finance_router
 from src.features.medical_record.router import router as medical_record_router
 from src.features.notification.router import router as notification_router
-from src.features.notification.runtime import run_notification_dispatch_loop
+from src.features.notification.runtime import run_notification_runtime
 from src.features.patient.router import router as patient_router
 from src.features.schedule.router import router as schedule_router
 from src.features.schedule_config.router import router as schedule_configuration_router
@@ -28,6 +30,7 @@ from src.features.tenant.router import router as tenant_router
 from src.features.user.router import router as user_router
 from src.shared.audit.audit_middleware import AuditContextMiddleware
 from src.shared.middlewares.docs_middleware import admin_docs_middleware
+from src.shared.redis import close_redis, init_redis
 from src.shared.tenancy.dependencies import require_tenant
 from src.shared.tenancy.tenant_middleware import TenantMiddleware
 
@@ -51,15 +54,24 @@ async def lifespan(_: FastAPI):
     """Handle startup and shutdown events."""
     # Startup
     await init_db()
-    notification_dispatch_task: Task[None] | None = None
+    await init_redis()
+    export_worker_task: Task[None] | None = None
+    notification_runtime_task: Task[None] | None = None
+    if settings.export_worker_enabled and not settings.testing:
+        export_worker_task = create_task(run_export_worker_loop())
     if settings.notification_background_dispatch_enabled and not settings.testing:
-        notification_dispatch_task = create_task(run_notification_dispatch_loop())
+        notification_runtime_task = create_task(run_notification_runtime())
     yield
-    if notification_dispatch_task is not None:
-        notification_dispatch_task.cancel()
+    if export_worker_task is not None:
+        export_worker_task.cancel()
         with suppress(CancelledError):
-            await notification_dispatch_task
+            await export_worker_task
+    if notification_runtime_task is not None:
+        notification_runtime_task.cancel()
+        with suppress(CancelledError):
+            await notification_runtime_task
     # Shutdown
+    await close_redis()
     await close_db()
 
 
@@ -189,6 +201,7 @@ public_routers: list[APIRouter] = [
 
 # Tenant-protected routers - require X-Tenant-ID header
 tenant_routers: list[APIRouter] = [
+    export_router,
     finance_router,
     notification_router,
     schedule_configuration_router,

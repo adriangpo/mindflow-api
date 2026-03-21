@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/patient` manages tenant-scoped patient records, including full registration, quick registration, registration completion, profile updates, and active/inactive lifecycle with retention metadata.
+`src/features/patient` manages tenant-scoped patient records, including full registration, quick registration, registration completion, profile updates, active/inactive lifecycle with retention metadata, and complete patient dossier export initiation.
 
 ## Scope
 
@@ -13,11 +13,16 @@ Documented feature files:
 - `src/features/patient/schemas.py`
 - `src/features/patient/models.py`
 - `src/features/patient/exceptions.py`
+- `src/features/patient/storage.py`
 
 Direct dependencies used by this feature:
 
 - `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
+- `src/features/export/service.py` (async export job creation)
+- `src/features/export/schemas.py` (`ExportJobKind`, `ExportJobResponse`)
+- `src/features/medical_record/models.py` (dossier medical-record history)
+- `src/features/schedule/models.py` (dossier appointment and billing history)
 - `src/shared/pagination/pagination.py` (`PaginationParams`)
 - `src/shared/tenancy/dependencies.py` (`require_tenant` via tenant DB session)
 - `src/database/client.py` (`set_tenant_context` sets `session.info["tenant_id"]`)
@@ -32,16 +37,18 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as PatientService
     participant DB as patients
+    participant Export as ExportService
 
-    Client->>Router: create/quick/list/get/update/complete/photo/inactivate/reactivate
+    Client->>Router: create/quick/list/get/update/complete/photo/inactivate/reactivate/export-init
     Router->>Guard: role + tenant assignment
     Guard-->>Router: authorized tenant owner
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: tenant-scoped operation
     Service->>DB: read/write + business rules
+    Router->>Export: create async export job for dossier export
     Service-->>Router: patient/result
-    Router-->>Client: response or error
+    Router-->>Client: response, error, or 202 ExportJobResponse
 ```
 
 ## Lifecycle
@@ -238,6 +245,26 @@ Errors:
 - `400`/`401`/`403` access errors
 - `422` invalid path parameter type
 
+### `POST /api/patients/{patient_id}/export/pdf`
+
+Queues a complete patient dossier PDF export.
+
+Behavior:
+
+- validates the patient exists in the current tenant
+- creates an async export job with kind `patient_complete_pdf`
+- the worker-generated PDF includes patient profile, appointment history, medical record history, and appointment-derived billing summary
+
+Success:
+
+- `202` `ExportJobResponse`
+
+Errors:
+
+- `404` `Patient not found`
+- `400`/`401`/`403` access errors
+- `422` invalid path parameter type
+
 ### `PUT /api/patients/{patient_id}`
 
 Updates patient fields.
@@ -420,6 +447,14 @@ Errors:
 - rejects when already active (`PatientAlreadyActive`)
 - sets `is_active=true` and clears inactivation/retention metadata
 
+### `export_complete_patient_pdf(session, patient_id)`
+
+- loads the patient in current tenant scope
+- loads non-deleted appointments ordered by latest first
+- loads medical records ordered by latest first
+- renders one PDF with profile, appointment history, medical record history, and appointment-derived billing totals
+- stores the file under `storage/patients/exports/<tenant-id>/...`
+
 ## Error Handling
 
 Feature exceptions (`src/features/patient/exceptions.py`):
@@ -446,6 +481,8 @@ Validation-originated errors:
 - inactivation stores retention deadline for logical record retention.
 - patient model uses `AuditableMixin`, so insert/update operations in these flows write audit entries.
 - tenant DB dependency sets transaction-scoped tenant context before service operations.
+- export initiation validates the patient and enqueues a shared async export job.
+- completed dossier files are stored under `storage/patients/exports/<tenant-id>/...`.
 
 Transaction behavior:
 
@@ -458,3 +495,4 @@ Transaction behavior:
 - Use quick registration for first-contact flows; finish later via `complete-registration`.
 - Treat `DELETE /patients/{id}` as inactivation, not hard deletion.
 - For lists, default behavior excludes inactive patients (`active_only=true`).
+- Dossier export is async; after `POST /api/patients/{id}/export/pdf`, use the generic `/api/exports/*` endpoints for progress, SSE updates, and download.

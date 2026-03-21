@@ -2,15 +2,15 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
 from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.export.schemas import ExportJobKind, ExportJobResponse
+from src.features.export.service import ExportService
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
-from src.shared.storage import StoredFile
 
 from .schemas import (
     MedicalRecordCreateRequest,
@@ -26,15 +26,6 @@ router = APIRouter(
     tags=["Medical Record Management"],
     dependencies=[Depends(require_role(UserRole.TENANT_OWNER))],
 )
-
-
-def _pdf_response(stored_file: StoredFile) -> FileResponse:
-    """Build a downloadable PDF response."""
-    return FileResponse(
-        path=stored_file.path,
-        media_type=stored_file.content_type,
-        filename=stored_file.filename,
-    )
 
 
 @router.post("", response_model=MedicalRecordResponse)
@@ -98,36 +89,53 @@ async def get_patient_medical_record_history(
     )
 
 
-@router.get("/export/pdf")
+@router.post("/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def export_all_medical_records_pdf(
-    _: User = Depends(require_tenant_membership),
+    current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Export all tenant medical records as a PDF file."""
-    stored_file = await MedicalRecordService.export_all_records_pdf(session)
-    return _pdf_response(stored_file)
+    """Queue an async export job for all tenant medical records."""
+    await MedicalRecordService.validate_all_records_export(session)
+    return await ExportService.create_job(
+        kind=ExportJobKind.MEDICAL_RECORD_ALL_PDF,
+        tenant_id=session.info["tenant_id"],
+        user_id=current_user.id,
+        payload={},
+    )
 
 
-@router.get("/patients/{patient_id}/export/pdf")
+@router.post(
+    "/patients/{patient_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED
+)
 async def export_patient_medical_record_history_pdf(
     patient_id: int,
-    _: User = Depends(require_tenant_membership),
+    current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Export one patient's medical record history as a PDF file."""
-    stored_file = await MedicalRecordService.export_patient_history_pdf(session, patient_id)
-    return _pdf_response(stored_file)
+    """Queue an async export job for one patient's medical record history."""
+    await MedicalRecordService.validate_patient_history_export(session, patient_id)
+    return await ExportService.create_job(
+        kind=ExportJobKind.MEDICAL_RECORD_PATIENT_HISTORY_PDF,
+        tenant_id=session.info["tenant_id"],
+        user_id=current_user.id,
+        payload={"patient_id": patient_id},
+    )
 
 
-@router.get("/{record_id}/export/pdf")
+@router.post("/{record_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
 async def export_single_medical_record_pdf(
     record_id: int,
-    _: User = Depends(require_tenant_membership),
+    current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Export a single medical record entry as a PDF file."""
-    stored_file = await MedicalRecordService.export_record_pdf(session, record_id)
-    return _pdf_response(stored_file)
+    """Queue an async export job for a single medical record entry."""
+    await MedicalRecordService.validate_record_export(session, record_id)
+    return await ExportService.create_job(
+        kind=ExportJobKind.MEDICAL_RECORD_SINGLE_PDF,
+        tenant_id=session.info["tenant_id"],
+        user_id=current_user.id,
+        payload={"record_id": record_id},
+    )
 
 
 @router.get("/{record_id}", response_model=MedicalRecordResponse)

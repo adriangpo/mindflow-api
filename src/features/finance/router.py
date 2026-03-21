@@ -2,11 +2,13 @@
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
 from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.export.schemas import ExportJobKind, ExportJobResponse, FinanceReportExportRequest
+from src.features.export.service import ExportService
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
 
@@ -115,3 +117,25 @@ async def get_finance_report(
         end_date=end_date,
     )
     return FinanceReportResponse.model_validate(report)
+
+
+@router.post("/report/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def export_finance_report_pdf(
+    data: FinanceReportExportRequest,
+    current_user: User = Depends(require_tenant_membership),
+    session: AsyncSession = Depends(get_tenant_db_session),
+):
+    """Queue a finance report PDF export."""
+    await FinanceService.build_report(
+        session,
+        view=data.view,
+        reference_date=data.reference_date,
+        start_date=data.start_date,
+        end_date=data.end_date,
+    )
+    return await ExportService.create_job(
+        kind=ExportJobKind.FINANCE_REPORT_PDF,
+        tenant_id=session.info["tenant_id"],
+        user_id=current_user.id,
+        payload=data.model_dump(mode="json"),
+    )

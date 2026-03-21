@@ -21,9 +21,9 @@ help:
 	@echo "  make docker-start     Start API + DB (ENVIRONMENT=development|staging|production)"
 	@echo "  make docker-up        Start API + DB without build"
 	@echo "  make docker-down      Stop Docker services (supports cleanup flags)"
-	@echo "  make docker-test-up   Start PostgreSQL test service"
-	@echo "  make docker-test-down Stop PostgreSQL test service"
-	@echo "  make docker-test-reset Force recreate PostgreSQL test service"
+	@echo "  make docker-test-up   Start PostgreSQL + Redis test services"
+	@echo "  make docker-test-down Stop PostgreSQL + Redis test services"
+	@echo "  make docker-test-reset Force recreate PostgreSQL + Redis test services"
 	@echo ""
 	@echo "  Examples:"
 	@echo "    make docker-start ENVIRONMENT=development"
@@ -87,18 +87,20 @@ docker-down:
 	@echo "✓ Docker services stopped"
 
 docker-test-up:
-	@echo "Ensuring PostgreSQL test service is running..."
+	@echo "Ensuring PostgreSQL and Redis test services are running..."
 	@test -f .env.test || { echo "ERROR: .env.test not found. Create it from .env.test.example."; exit 1; }; \
 	test_port=$$(awk -F= '/^TEST_POSTGRES_PORT=/{print $$2}' .env.test | tail -n1 | tr -d '\r'); \
 	if [ -z "$$test_port" ]; then test_port="5433"; fi; \
-	docker compose --env-file .env.test up -d postgres_test; \
+	docker compose --env-file .env.test up -d postgres_test redis_test; \
 	echo "Waiting for PostgreSQL test service to be ready..."; \
 	container_id=$$(docker compose --env-file .env.test ps -q postgres_test); \
+	pg_ready="false"; \
 	for i in $$(seq 1 30); do \
 		status=$$(docker inspect --format '{{.State.Health.Status}}' $$container_id 2>/dev/null || echo "starting"); \
 		if [ "$$status" = "healthy" ]; then \
 			echo "✓ PostgreSQL test service is ready on port $$test_port"; \
-			exit 0; \
+			pg_ready="true"; \
+			break; \
 		fi; \
 		if [ "$$status" = "unhealthy" ]; then \
 			echo "ERROR: PostgreSQL test service became unhealthy"; \
@@ -107,18 +109,43 @@ docker-test-up:
 		fi; \
 		sleep 1; \
 	done; \
-	echo "ERROR: Timed out waiting for PostgreSQL test service to become healthy"; \
-	docker logs --tail 80 $$container_id; \
-	exit 1
+	if [ "$$pg_ready" != "true" ]; then \
+		echo "ERROR: Timed out waiting for PostgreSQL test service to become healthy"; \
+		docker logs --tail 80 $$container_id; \
+		exit 1; \
+	fi; \
+	redis_container_id=$$(docker compose --env-file .env.test ps -q redis_test); \
+	echo "Waiting for Redis test service to be ready..."; \
+	redis_ready="false"; \
+	for i in $$(seq 1 30); do \
+		status=$$(docker inspect --format '{{.State.Health.Status}}' $$redis_container_id 2>/dev/null || echo "starting"); \
+		if [ "$$status" = "healthy" ]; then \
+			echo "✓ Redis test service is ready on port 6380"; \
+			redis_ready="true"; \
+			break; \
+		fi; \
+		if [ "$$status" = "unhealthy" ]; then \
+			echo "ERROR: Redis test service became unhealthy"; \
+			docker logs --tail 80 $$redis_container_id; \
+			exit 1; \
+		fi; \
+		sleep 1; \
+	done; \
+	if [ "$$redis_ready" != "true" ]; then \
+		echo "ERROR: Timed out waiting for Redis test service to become healthy"; \
+		docker logs --tail 80 $$redis_container_id; \
+		exit 1; \
+	fi
 
 docker-test-down:
-	@echo "Stopping PostgreSQL test service..."
-	@docker compose --env-file .env.test stop postgres_test
-	@echo "✓ PostgreSQL test service stopped"
+	@echo "Stopping PostgreSQL and Redis test services..."
+	@docker compose --env-file .env.test stop postgres_test redis_test
+	@echo "✓ PostgreSQL and Redis test services stopped"
 
 docker-test-reset:
-	@echo "Resetting PostgreSQL test service..."
+	@echo "Resetting PostgreSQL and Redis test services..."
 	@docker compose --env-file .env.test rm -f -s postgres_test >/dev/null 2>&1 || true
+	@docker compose --env-file .env.test rm -f -s redis_test >/dev/null 2>&1 || true
 	@$(MAKE) docker-test-up
 
 db-upgrade:

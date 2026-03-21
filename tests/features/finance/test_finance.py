@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import status
 
 from src.features.auth.dependencies import get_current_active_user, get_current_user
+from src.features.export.service import ExportService
 from src.features.finance.schemas import FinanceReportView, FinancialEntryCreateRequest
 from src.features.finance.service import FinanceService
 from src.features.patient.schemas import PatientCreateRequest
@@ -261,3 +262,19 @@ class TestFinanceAPI:
         response = await client.get("/api/finance/report")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_export_finance_report_pdf(self, auth_client, session, isolated_storage_root):
+        client, user = auth_client
+        user.tenant_ids = [_tenant_id_from_client(client)]
+
+        export_response = await client.post("/api/finance/report/export/pdf", json={"view": "total"})
+        assert export_response.status_code == status.HTTP_202_ACCEPTED
+
+        await ExportService.process_job(export_response.json()["id"], session=session)
+
+        download_response = await client.get(f"/api/exports/{export_response.json()['id']}/download")
+        assert download_response.status_code == status.HTTP_200_OK
+        assert download_response.headers["content-type"].startswith("application/pdf")
+        assert download_response.content.startswith(b"%PDF-1.4")
+        stored_files = list(isolated_storage_root.rglob("*.pdf"))
+        assert stored_files

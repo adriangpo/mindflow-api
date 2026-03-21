@@ -31,6 +31,7 @@ from src.features.schedule_config.schemas import ScheduleConfigurationCreateRequ
 from src.features.schedule_config.service import ScheduleConfigurationService
 from src.features.user.models import UserRole
 from src.main import app
+from src.shared.redis import commit_with_staged_redis
 
 
 def _tenant_id_from_client(client) -> UUID:
@@ -136,6 +137,8 @@ class TestNotificationService:
                 modality=AppointmentModality.IN_PERSON,
             ),
         )
+        await commit_with_staged_redis(session)
+        await NotificationService.dispatch_due_messages(session, limit=10)
         await session.commit()
 
         result = await session.execute(
@@ -212,6 +215,8 @@ class TestNotificationService:
             appointment,
             ScheduleAppointmentStatusUpdateRequest(status=AppointmentStatus.CANCELED),
         )
+        await commit_with_staged_redis(session)
+        await NotificationService.dispatch_due_messages(session, limit=10)
         await session.commit()
 
         reminder_result = await session.execute(
@@ -351,16 +356,30 @@ class TestNotificationAPI:
         patient = await _create_patient(session)
         await _create_schedule_configuration(session, user.id)
 
+        settings_response = await client.put(
+            "/api/notifications/settings",
+            json={
+                "patient_notifications_enabled": True,
+                "user_notifications_enabled": False,
+                "reminders_enabled": True,
+                "notify_on_create": False,
+                "notify_on_update": True,
+                "notify_on_cancel": True,
+                "default_reminder_minutes_before": 10,
+            },
+        )
+        assert settings_response.status_code == status.HTTP_200_OK
+
         appointment = await ScheduleService.create_appointment(
             session,
             user.id,
             ScheduleAppointmentCreateRequest(
                 patient_id=patient.id,
-                starts_at=datetime.now(UTC) + timedelta(days=2),
+                starts_at=datetime.now(UTC) + timedelta(minutes=5),
                 modality=AppointmentModality.IN_PERSON,
             ),
         )
-        await session.flush()
+        await commit_with_staged_redis(session)
 
         reminder = await session.scalar(
             select(NotificationMessage).where(
@@ -370,12 +389,6 @@ class TestNotificationAPI:
             )
         )
         assert reminder is not None
-
-        reminder.scheduled_for = datetime.now(UTC) - timedelta(minutes=1)
-        reminder.status = NotificationMessageStatus.PENDING.value
-        reminder.sent_at = None
-        reminder.failed_at = None
-        await session.commit()
 
         pending_response = await client.get(
             "/api/notifications/messages?event_type=appointment_reminder&message_status=pending"

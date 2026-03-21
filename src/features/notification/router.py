@@ -7,6 +7,7 @@ from src.database.dependencies import get_tenant_db_session
 from src.features.auth.dependencies import require_role, require_tenant_membership
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
+from src.shared.redis import commit_with_staged_redis
 
 from .schemas import (
     NotificationDispatchRequest,
@@ -58,7 +59,7 @@ async def update_notification_settings(
 ):
     """Cria ou atualiza as configurações de notificação do tenant."""
     settings = await NotificationService.upsert_settings(session, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     await session.refresh(settings)
     return NotificationSettingsResponse.model_validate(settings)
 
@@ -91,7 +92,7 @@ async def upsert_patient_notification_preference(
 ):
     """Cria ou atualiza as configurações de notificação de um paciente."""
     await NotificationService.upsert_patient_preference(session, patient_id, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     preference = await NotificationService.get_patient_preference_details(session, patient_id)
     return NotificationPatientPreferenceResponse.model_validate(preference)
 
@@ -124,7 +125,7 @@ async def upsert_user_notification_profile(
 ):
     """Cria ou atualiza o perfil de notificação de um usuário do tenant."""
     await NotificationService.upsert_user_profile(session, user_id, data)
-    await session.commit()
+    await commit_with_staged_redis(session)
     profile = await NotificationService.get_user_profile_details(session, user_id)
     return NotificationUserProfileResponse.model_validate(profile)
 

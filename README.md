@@ -2,6 +2,11 @@
 
 FastAPI backend for multi-tenant clinical scheduling and patient management.
 
+The API now uses Redis for two runtime concerns:
+
+- async export jobs and live export progress events
+- notification scheduling and delivery queues
+
 ## Quick Start
 
 ### 1. Install dependencies
@@ -26,9 +31,12 @@ Database configuration options:
 
 - `POSTGRES_URL` (full connection string override)
 - or `POSTGRES_USER` + `POSTGRES_PASSWORD` + `POSTGRES_DB` + `POSTGRES_HOST` + `POSTGRES_PORT`
+- `REDIS_URL`
 - `NOTIFICATION_PROVIDER` (`auto`, `stub`, or `twilio`)
 - `NOTIFICATION_BACKGROUND_DISPATCH_ENABLED` (default `true`)
 - `NOTIFICATION_DISPATCH_INTERVAL_SECONDS` (default `60`)
+- `EXPORT_WORKER_ENABLED` (default `true`)
+- `EXPORT_SSE_KEEPALIVE_SECONDS` (default `15`)
 - `NOTIFICATION_DEFAULT_COUNTRY_CODE` (default `+55`, used to format stored local phone numbers)
 - `TWILIO_ACCOUNT_SID`
 - `TWILIO_AUTH_TOKEN`
@@ -37,6 +45,7 @@ Database configuration options:
 For Docker runs, API container uses `POSTGRES_URL` when provided; otherwise it builds one from `POSTGRES_USER/PASSWORD/HOST/DB` using internal PostgreSQL port `5432`.
 Default `.env.example` sets `POSTGRES_HOST=postgres` for Docker networking.
 If you run API locally (outside Docker), set `POSTGRES_HOST=localhost`.
+Default `.env.example` also sets `REDIS_URL=redis://redis:6379/0` for Docker networking.
 
 ### 3. Start services (Docker)
 
@@ -44,9 +53,9 @@ If you run API locally (outside Docker), set `POSTGRES_HOST=localhost`.
 make docker-start ENVIRONMENT=development
 ```
 
-`make docker-start` starts API + PostgreSQL containers for the selected profile.
+`make docker-start` starts API + PostgreSQL + Redis containers for the selected profile.
 
-If you want to run API locally with `uv run`, start only PostgreSQL separately (for example: `docker compose up -d postgres`).
+If you want to run API locally with `uv run`, start PostgreSQL and Redis separately (for example: `docker compose up -d postgres redis`).
 
 ### 4. Run migrations
 
@@ -83,9 +92,12 @@ For Twilio sandbox testing, use the Twilio sandbox sender number and join the sa
 ## Architecture Summary
 
 - App entrypoint: `src/main.py`
-- Feature modules: `src/features/{auth,user,tenant,schedule_config,patient,schedule,finance,medical_record,notification}`
+- Feature modules: `src/features/{auth,user,tenant,export,schedule_config,patient,schedule,finance,medical_record,notification}`
 - Shared modules: `src/shared/*`
 - Database migrations: `alembic/versions/*`
+- Redis runtime state:
+  - export jobs and creator-scoped export event streams
+  - notification schedule ZSET and per-tenant delivery streams
 
 Tenant-protected endpoints require:
 
@@ -94,6 +106,13 @@ Tenant-protected endpoints require:
 3. Tenant membership validation
 
 Tenant-scoped tables use PostgreSQL RLS policies keyed by `app.current_tenant`.
+
+Export flows are async:
+
+- feature-specific `POST .../export/pdf` endpoints return `202 Accepted` with an export job payload
+- generic `/api/exports/{job_id}` returns progress
+- generic `/api/exports/events` streams SSE updates for the authenticated user in the current tenant
+- generic `/api/exports/{job_id}/download` serves the finished file
 
 ## Authentication
 
@@ -125,6 +144,7 @@ Production/staging require explicit origin configuration (no wildcard policy in 
 ## Testing And Quality
 
 Tests run against PostgreSQL (not SQLite) and apply Alembic migrations before test execution.
+Tests also require Redis for export and notification queue/runtime coverage.
 
 Create test env file before running test DB commands:
 
@@ -141,6 +161,11 @@ Test DB variables in `.env.test` use `TEST_POSTGRES_*`:
 - `TEST_POSTGRES_PORT`
 - optional `TEST_POSTGRES_URL` override
 
+Test Redis variables in `.env.test`:
+
+- `TEST_REDIS_URL`
+- `REDIS_URL` (used by the app runtime during tests)
+
 ```bash
 make check-all
 make test
@@ -153,6 +178,8 @@ Useful targets:
 - `make test-cov`
 - `make docker-test-up`
 - `make docker-test-down`
+
+`make docker-test-up` starts both `postgres_test` and `redis_test`.
 
 ## Feature Docs
 
@@ -167,3 +194,4 @@ Implementation-focused docs are under `docs/features/`:
 - `docs/features/finance.md`
 - `docs/features/medical-record.md`
 - `docs/features/notification.md`
+- `docs/features/export.md`

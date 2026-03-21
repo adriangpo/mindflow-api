@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/finance` manages tenant-scoped financial reporting and manual financial entries. It combines automatic consultation revenue derived from paid appointments with manually entered income and expense records.
+`src/features/finance` manages tenant-scoped financial reporting and manual financial entries. It combines automatic consultation revenue derived from paid appointments with manually entered income and expense records, and it can queue async PDF exports of the finance report.
 
 ## Scope
 
@@ -13,11 +13,14 @@ Documented feature files:
 - `src/features/finance/schemas.py`
 - `src/features/finance/models.py`
 - `src/features/finance/exceptions.py`
+- `src/features/finance/storage.py`
 
 Direct dependencies used by this feature:
 
 - `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
+- `src/features/export/service.py` (async export job creation)
+- `src/features/export/schemas.py` (`ExportJobKind`, `ExportJobResponse`, `FinanceReportExportRequest`)
 - `src/features/schedule/models.py` (`ScheduleAppointment` for automatic consultation revenue)
 - `src/features/schedule/schemas.py` (`PaymentStatus`)
 - `src/shared/pagination/pagination.py` (`PaginationParams`)
@@ -33,16 +36,18 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as FinanceService
     participant DB as financial_entries + schedule_appointments
+    participant Export as ExportService
 
-    Client->>Router: create/list/get/reverse/report
+    Client->>Router: create/list/get/reverse/report/export-init
     Router->>Guard: RBAC + tenant assignment
     Guard-->>Router: authorized tenant user
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: business operation
     Service->>DB: manual entries and report aggregates
-    Service-->>Router: model or summary payload
-    Router-->>Client: DTO or report response
+    Router->>Export: create async export job for validated report export
+    Service-->>Router: model, summary payload, or export validation result
+    Router-->>Client: DTO, report response, or 202 ExportJobResponse
 ```
 
 ## Data Model
@@ -180,6 +185,33 @@ Response totals:
 - `manual_income_count`
 - `manual_expense_count`
 
+### `POST /api/finance/report/export/pdf`
+
+Queues a finance report PDF export.
+
+Request body:
+
+- `view`: `day|week|month|year|total|custom`, default `day`
+- `reference_date`: optional
+- `start_date`, `end_date`: optional, but `custom` still requires both dates through finance service validation
+
+Behavior:
+
+- validates the requested report window by calling the same report builder used by `GET /api/finance/report`
+- creates an async export job with kind `finance_report_pdf`
+- final PDF includes summary totals, non-reversed manual entries, and paid non-deleted appointments for the resolved range
+
+Success:
+
+- `202` `ExportJobResponse`
+
+Errors:
+
+- `400` invalid custom range
+- `400` custom range missing dates
+- `400`/`401`/`403` access, tenant, or auth failures
+- `422` request validation
+
 ## Service Logic
 
 `FinanceService` centralizes:
@@ -190,6 +222,7 @@ Response totals:
 - aggregate report computation across:
   - `financial_entries` for manual income/expenses
   - `schedule_appointments` for automatic paid consultation revenue
+- PDF export generation through `export_report_pdf(...)`
 
 Reporting rules:
 
@@ -197,6 +230,7 @@ Reporting rules:
 - deleted appointments are excluded from automatic revenue
 - appointment status does not affect revenue once payment status is `paid`
 - automatic revenue amount uses the persisted appointment `charge_amount` snapshot
+- exported manual-entry detail excludes reversed rows
 
 ## Error Handling
 
@@ -214,6 +248,8 @@ Access and tenancy errors come from shared dependencies (`400/401/403`), and sch
 - `POST /entries` and `POST /entries/{id}/reverse` commit at router boundary.
 - `FinancialEntry` inherits `AuditableMixin`, so creation and reversal emit entries into `audit_logs`.
 - Finance reports are read-only and do not materialize derived appointment revenue rows.
+- finance export initiation validates the report window and enqueues a shared async export job.
+- completed export files are stored under `storage/finance/exports/<tenant-id>/...`.
 
 ## Frontend Integration Notes
 
@@ -221,3 +257,4 @@ Access and tenancy errors come from shared dependencies (`400/401/403`), and sch
 - Both `tenant_owner` and `assistant` roles are allowed.
 - Manual entry corrections in v1 require reversal plus a new replacement entry.
 - Report windows use UTC calendar boundaries for appointment `paid_at` aggregation.
+- Finance PDF export is async; after `POST /api/finance/report/export/pdf`, use the generic `/api/exports/*` endpoints for progress, SSE updates, and download.

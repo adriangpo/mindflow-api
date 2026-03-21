@@ -8,6 +8,7 @@ import pytest
 from fastapi import status
 
 from src.features.auth.dependencies import get_current_active_user, get_current_user
+from src.features.export.service import ExportService
 from src.features.medical_record.exceptions import (
     MedicalRecordAppointmentNotFound,
     MedicalRecordAppointmentPatientMismatch,
@@ -423,13 +424,23 @@ class TestMedicalRecordAPI:
         assert update_response.status_code == status.HTTP_200_OK
         assert update_response.json()["title"] == "Sessao 01"
 
-        export_response = await client.get(f"/api/medical-records/{record_id}/export/pdf")
-        assert export_response.status_code == status.HTTP_200_OK
-        assert export_response.headers["content-type"].startswith("application/pdf")
+        export_response = await client.post(f"/api/medical-records/{record_id}/export/pdf")
+        assert export_response.status_code == status.HTTP_202_ACCEPTED
+        job_id = export_response.json()["id"]
+
+        await ExportService.process_job(job_id, session=session)
+
+        status_response = await client.get(f"/api/exports/{job_id}")
+        assert status_response.status_code == status.HTTP_200_OK
+        assert status_response.json()["status"] == "completed"
+
+        download_response = await client.get(f"/api/exports/{job_id}/download")
+        assert download_response.status_code == status.HTTP_200_OK
+        assert download_response.headers["content-type"].startswith("application/pdf")
         assert (
-            export_response.headers["content-disposition"] == f'attachment; filename="medical-record-{record_id}.pdf"'
+            download_response.headers["content-disposition"] == f'attachment; filename="medical-record-{record_id}.pdf"'
         )
-        assert export_response.content.startswith(b"%PDF-1.4")
+        assert download_response.content.startswith(b"%PDF-1.4")
         stored_files = list(isolated_storage_root.rglob("*.pdf"))
         assert len(stored_files) == 1
         assert stored_files[0].name == f"medical-record-{record_id}.pdf"
@@ -438,7 +449,7 @@ class TestMedicalRecordAPI:
         client, user = auth_client
         user.tenant_ids = [_tenant_id_from_client(client)]
 
-        response = await client.get("/api/medical-records/export/pdf")
+        response = await client.post("/api/medical-records/export/pdf")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -465,17 +476,26 @@ class TestMedicalRecordAPI:
         record_id = create_response.json()["id"]
 
         get_response = await client.get(f"/api/medical-records/{record_id}")
-        patient_export_response = await client.get(f"/api/medical-records/patients/{patient.id}/export/pdf")
-        all_export_response = await client.get("/api/medical-records/export/pdf")
+        patient_export_response = await client.post(f"/api/medical-records/patients/{patient.id}/export/pdf")
+        all_export_response = await client.post("/api/medical-records/export/pdf")
 
         assert get_response.status_code == status.HTTP_200_OK
         assert get_response.json()["id"] == record_id
-        assert patient_export_response.status_code == status.HTTP_200_OK
-        assert patient_export_response.headers["content-type"].startswith("application/pdf")
-        assert patient_export_response.content.startswith(b"%PDF-1.4")
-        assert all_export_response.status_code == status.HTTP_200_OK
-        assert all_export_response.headers["content-type"].startswith("application/pdf")
-        assert all_export_response.content.startswith(b"%PDF-1.4")
+        assert patient_export_response.status_code == status.HTTP_202_ACCEPTED
+        assert all_export_response.status_code == status.HTTP_202_ACCEPTED
+
+        await ExportService.process_job(patient_export_response.json()["id"], session=session)
+        await ExportService.process_job(all_export_response.json()["id"], session=session)
+
+        patient_download_response = await client.get(f"/api/exports/{patient_export_response.json()['id']}/download")
+        all_download_response = await client.get(f"/api/exports/{all_export_response.json()['id']}/download")
+
+        assert patient_download_response.status_code == status.HTTP_200_OK
+        assert patient_download_response.headers["content-type"].startswith("application/pdf")
+        assert patient_download_response.content.startswith(b"%PDF-1.4")
+        assert all_download_response.status_code == status.HTTP_200_OK
+        assert all_download_response.headers["content-type"].startswith("application/pdf")
+        assert all_download_response.content.startswith(b"%PDF-1.4")
         stored_names = sorted(path.name for path in isolated_storage_root.rglob("*.pdf"))
         assert stored_names == [
             "medical-record-history-all-patients.pdf",
@@ -545,7 +565,7 @@ class TestMedicalRecordAPI:
         patient = await _create_patient(session, cpf="69542144342")
         await session.commit()
 
-        response = await client.get(f"/api/medical-records/patients/{patient.id}/export/pdf")
+        response = await client.post(f"/api/medical-records/patients/{patient.id}/export/pdf")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -553,7 +573,7 @@ class TestMedicalRecordAPI:
         client, user = auth_client
         user.tenant_ids = [_tenant_id_from_client(client)]
 
-        response = await client.get("/api/medical-records/patients/999999/export/pdf")
+        response = await client.post("/api/medical-records/patients/999999/export/pdf")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 

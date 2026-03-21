@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
 from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.export.schemas import ExportJobKind, ExportJobResponse
+from src.features.export.service import ExportService
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
 
@@ -116,6 +118,22 @@ async def get_patient(
     """Get patient by id."""
     patient = await PatientService.require_patient(session, patient_id)
     return PatientResponse.model_validate(patient)
+
+
+@router.post("/{patient_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def export_patient_complete_pdf(
+    patient_id: int,
+    current_user: User = Depends(require_tenant_membership),
+    session: AsyncSession = Depends(get_tenant_db_session),
+):
+    """Queue a complete patient dossier export."""
+    await PatientService.require_patient(session, patient_id)
+    return await ExportService.create_job(
+        kind=ExportJobKind.PATIENT_COMPLETE_PDF,
+        tenant_id=session.info["tenant_id"],
+        user_id=current_user.id,
+        payload={"patient_id": patient_id},
+    )
 
 
 @router.put("/{patient_id}", response_model=PatientResponse)
