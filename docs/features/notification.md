@@ -20,7 +20,7 @@ Documented feature files:
 
 Direct dependencies used by this feature:
 
-- `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
+- `src/features/auth/dependencies.py` (`require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
 - `src/database/client.py` (`get_session`, `set_tenant_context`)
 - `src/features/patient/models.py` (`Patient` lookups and default contact phone)
@@ -39,7 +39,7 @@ Direct dependencies used by this feature:
 sequenceDiagram
     participant Client
     participant Router as /api/notifications/*
-    participant Guard as require_role(owner|assistant) + require_tenant_membership
+    participant Guard as require_tenant_membership
     participant TenantDB as get_tenant_db_session
     participant Service as NotificationService
     participant DB as settings + profiles + messages
@@ -47,7 +47,7 @@ sequenceDiagram
     participant Backend as delivery backend
 
     Client->>Router: get/update settings or profiles, list messages, dispatch due
-    Router->>Guard: RBAC + tenant assignment
+    Router->>Guard: tenant assignment
     Guard-->>Router: authorized tenant user
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
@@ -206,7 +206,6 @@ QStash configuration and behavior:
 
 All `/api/notifications/*` endpoints require:
 
-- authenticated user with role `tenant_owner` OR `assistant`
 - valid `X-Tenant-ID` tenant context
 - authenticated user assigned to requested tenant
 
@@ -482,7 +481,7 @@ Dependency-originated errors:
 
 - `400` tenant header missing or invalid
 - `401` authentication failures
-- `403` role, tenant membership, inactive user, or locked user failures
+- `403` tenant membership, inactive user, or locked user failures
 
 Backend-originated delivery failures:
 

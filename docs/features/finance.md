@@ -17,7 +17,7 @@ Documented feature files:
 
 Direct dependencies used by this feature:
 
-- `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
+- `src/features/auth/dependencies.py` (`require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
 - `src/features/export/service.py` (async export job creation)
 - `src/features/export/schemas.py` (`ExportJobKind`, `ExportJobResponse`, `FinanceReportExportRequest`)
@@ -32,14 +32,14 @@ Direct dependencies used by this feature:
 sequenceDiagram
     participant Client
     participant Router as /api/finance/*
-    participant Guard as require_role(owner|assistant) + require_tenant_membership
+    participant Guard as require_tenant_membership
     participant TenantDB as get_tenant_db_session
     participant Service as FinanceService
     participant DB as financial_entries + schedule_appointments
     participant Export as ExportService
 
     Client->>Router: create/list/get/reverse/report/export-init
-    Router->>Guard: RBAC + tenant assignment
+    Router->>Guard: tenant assignment
     Guard-->>Router: authorized tenant user
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
@@ -254,7 +254,7 @@ Access and tenancy errors come from shared dependencies (`400/401/403`), and sch
 ## Frontend Integration Notes
 
 - Send `X-Tenant-ID` header and Bearer token for every finance endpoint.
-- Both `tenant_owner` and `assistant` roles are allowed.
+- Access requires an authenticated user assigned to the requested tenant.
 - Manual entry corrections in v1 require reversal plus a new replacement entry.
 - Report windows use UTC calendar boundaries for appointment `paid_at` aggregation.
 - Finance PDF export is async; after `POST /api/finance/report/export/pdf`, use the generic `/api/exports/*` endpoints for progress, SSE updates, and download.

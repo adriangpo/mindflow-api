@@ -16,7 +16,7 @@ Documented feature files:
 
 Direct dependencies used by this feature:
 
-- `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
+- `src/features/auth/dependencies.py` (`require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
 - `src/features/patient/models.py` (`Patient` lookup/active check)
 - `src/features/notification/service.py` (`NotificationService` for confirmation, update, cancellation, and reminder hooks)
@@ -30,14 +30,14 @@ Direct dependencies used by this feature:
 sequenceDiagram
     participant Client
     participant Router as /api/schedule/*
-    participant Guard as require_role(owner|assistant) + require_tenant_membership
+    participant Guard as require_tenant_membership
     participant TenantDB as get_tenant_db_session
     participant Service as ScheduleService
     participant DB as appointments + history
     participant Notification as NotificationService
 
     Client->>Router: create/list/detail/update/status/payment/delete/defaults/availability
-    Router->>Guard: RBAC + tenant assignment
+    Router->>Guard: tenant assignment
     Guard-->>Router: authorized tenant user
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
@@ -175,7 +175,6 @@ erDiagram
 
 All `/api/schedule/*` endpoints require:
 
-- authenticated user with role `tenant_owner` OR `assistant` (router-level `require_role`)
 - valid `X-Tenant-ID` tenant context (tenant-protected router + tenant DB session)
 - authenticated user assigned to requested tenant (`require_tenant_membership`)
 
@@ -551,7 +550,7 @@ Dependency-originated errors:
 
 - `400` tenant header missing/invalid
 - `401` authentication failures
-- `403` role/tenant membership/inactive/locked failures
+- `403` tenant membership/inactive/locked failures
 
 ## Side Effects
 

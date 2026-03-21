@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
-from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.auth.dependencies import require_tenant_membership
 from src.features.schedule_config.schemas import WeekDay
-from src.features.user.models import User, UserRole
+from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 from src.shared.redis import commit_with_staged_redis
 
@@ -35,7 +35,6 @@ from .service import ScheduleService
 router = APIRouter(
     prefix="/schedule",
     tags=["Schedule Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT))],
 )
 
 

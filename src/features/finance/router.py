@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
-from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.auth.dependencies import require_tenant_membership
 from src.features.export.schemas import ExportJobKind, ExportJobResponse, FinanceReportExportRequest
 from src.features.export.service import ExportService
-from src.features.user.models import User, UserRole
+from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 
 from .schemas import (
@@ -27,7 +27,6 @@ from .service import FinanceService
 router = APIRouter(
     prefix="/finance",
     tags=["Finance Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT))],
 )
 
 
