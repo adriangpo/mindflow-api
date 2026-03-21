@@ -5,8 +5,10 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 
 from src.features.export.service import ExportService
+from src.main import app
 from src.shared.storage import StoredFile
 
 
@@ -206,6 +208,39 @@ class TestExportQStash:
 
         assert missing_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
         assert invalid_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    async def test_internal_callback_does_not_require_tenant_header(
+        self,
+        auth_client,
+        fake_qstash,
+        sign_qstash_request,
+    ):
+        _ = fake_qstash
+        client, user = auth_client
+        tenant_id = _tenant_id_from_client(client)
+        user.tenant_ids = [tenant_id]
+
+        record_id = await _create_record_via_api(client)
+        create_job_response = await client.post(f"/api/medical-records/{record_id}/export/pdf")
+        assert create_job_response.status_code == status.HTTP_202_ACCEPTED
+        job_id = create_job_response.json()["id"]
+
+        body = json.dumps({"job_id": job_id}, separators=(",", ":"))
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as public_client:
+            callback_response = await public_client.post(
+                "/api/internal/qstash/exports/process",
+                content=body,
+                headers=sign_qstash_request(
+                    body=body,
+                    path="/api/internal/qstash/exports/process",
+                ),
+            )
+
+        assert callback_response.status_code == status.HTTP_200_OK
+        assert callback_response.json()["status"] == "completed"
 
     async def test_download_redirects_to_presigned_url_when_storage_backend_is_s3(
         self,

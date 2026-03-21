@@ -26,9 +26,9 @@ Core runtime composition (`src/main.py`):
 - App setup: `CustomFastAPI` with custom OpenAPI generation
 - Middleware: SlowAPI, admin docs middleware, CORS, tenant header extraction, audit context middleware
 - Router groups:
-- Public routers: `auth`, `user`, `tenant`
+- Public routers: `auth`, `user`, `tenant`, plus the internal QStash callback routers for `export` and `notification`
 - Tenant-protected routers: `export`, `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`
-- Lifespan hooks initialize database and Redis resources, optionally start the export worker and notification runtime, and close resources on shutdown
+- Lifespan hooks initialize database and Redis resources, then either prepare QStash callback resources or start the resident export worker and notification runtime before closing resources on shutdown
 
 Layer responsibilities:
 
@@ -306,6 +306,7 @@ Current migration chain:
 10. medical records (+ RLS)
 11. finance feature (+ RLS)
 12. notification feature (+ RLS)
+13. notification `qstash_message_id` support
 
 ---
 
@@ -458,7 +459,7 @@ Preferred diagram usage:
 
 Diagram quality rules:
 
-- Prefer 1–3 diagrams per feature document unless additional diagrams are clearly necessary.
+- Prefer 1-3 diagrams per feature document unless additional diagrams are clearly necessary.
 - Include diagrams only when they materially improve understanding of implementation.
 - Reflect implemented behavior only.
 - Keep diagrams feature-scoped.

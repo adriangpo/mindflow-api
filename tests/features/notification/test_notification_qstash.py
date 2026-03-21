@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 
 from fastapi import status
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from src.features.notification.models import NotificationMessage
@@ -27,6 +28,7 @@ from src.features.schedule.schemas import (
 from src.features.schedule.service import ScheduleService
 from src.features.schedule_config.schemas import ScheduleConfigurationCreateRequest, WeekDay
 from src.features.schedule_config.service import ScheduleConfigurationService
+from src.main import app
 from src.shared.redis import commit_with_staged_redis
 
 
@@ -343,19 +345,141 @@ class TestNotificationQStash:
             separators=(",", ":"),
         )
 
-        missing_signature_response = await client.post(
-            "/api/internal/qstash/notifications/deliver",
-            content=body,
-            headers={"Content-Type": "application/json"},
+        callback_cases = [
+            (
+                "/api/internal/qstash/notifications/deliver",
+                body,
+            ),
+            (
+                "/api/internal/qstash/notifications/sync",
+                json.dumps({"kind": "notification_sync"}, separators=(",", ":")),
+            ),
+        ]
+
+        for path, callback_body in callback_cases:
+            missing_signature_response = await client.post(
+                path,
+                content=callback_body,
+                headers={"Content-Type": "application/json"},
+            )
+            invalid_signature_response = await client.post(
+                path,
+                content=callback_body,
+                headers={
+                    "Content-Type": "application/json",
+                    "Upstash-Signature": "invalid-signature",
+                },
+            )
+
+            assert missing_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert invalid_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
+
+    async def test_qstash_delivery_callback_does_not_require_tenant_header(
+        self,
+        session,
+        fake_qstash,
+        sign_qstash_request,
+    ):
+        _ = fake_qstash
+        tenant_id = session.info["tenant_id"]
+
+        message = NotificationMessage(
+            tenant_id=tenant_id,
+            appointment_id=None,
+            patient_id=None,
+            recipient_user_id=None,
+            recipient_type=NotificationRecipientType.PATIENT.value,
+            event_type=NotificationEventType.APPOINTMENT_REMINDER.value,
+            channel="whatsapp",
+            status=NotificationMessageStatus.PENDING.value,
+            destination="14999999999",
+            content="Mensagem de lembrete",
+            scheduled_for=datetime.now(UTC) - timedelta(minutes=1),
+            qstash_message_id="scheduled-qmsg-no-tenant",
         )
-        invalid_signature_response = await client.post(
-            "/api/internal/qstash/notifications/deliver",
-            content=body,
-            headers={
-                "Content-Type": "application/json",
-                "Upstash-Signature": "invalid-signature",
+        session.add(message)
+        await session.commit()
+
+        body = json.dumps(
+            {
+                "message_id": message.id,
+                "tenant_id": str(tenant_id),
             },
+            separators=(",", ":"),
         )
 
-        assert missing_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
-        assert invalid_signature_response.status_code == status.HTTP_401_UNAUTHORIZED
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as public_client:
+            response = await public_client.post(
+                "/api/internal/qstash/notifications/deliver",
+                content=body,
+                headers=sign_qstash_request(
+                    body=body,
+                    path="/api/internal/qstash/notifications/deliver",
+                ),
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["sent_count"] == 1
+
+    async def test_qstash_sync_callback_does_not_require_tenant_header(
+        self,
+        session,
+        fake_qstash,
+        sign_qstash_request,
+    ):
+        _ = fake_qstash
+        tenant_id = session.info["tenant_id"]
+        near_message = NotificationMessage(
+            tenant_id=tenant_id,
+            appointment_id=None,
+            patient_id=None,
+            recipient_user_id=None,
+            recipient_type=NotificationRecipientType.PATIENT.value,
+            event_type=NotificationEventType.APPOINTMENT_REMINDER.value,
+            channel="whatsapp",
+            status=NotificationMessageStatus.PENDING.value,
+            destination="14999999999",
+            content="Lembrete de callback",
+            scheduled_for=datetime.now(UTC) + timedelta(days=3),
+        )
+        session.add(near_message)
+        await session.commit()
+
+        body = json.dumps({"kind": "notification_sync"}, separators=(",", ":"))
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as public_client:
+            response = await public_client.post(
+                "/api/internal/qstash/notifications/sync",
+                content=body,
+                headers=sign_qstash_request(
+                    body=body,
+                    path="/api/internal/qstash/notifications/sync",
+                ),
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["tenant_count"] == 1
+        assert response.json()["scheduled_count"] == 1
+        assert response.json()["failed_count"] == 0
+
+        await session.refresh(near_message)
+        assert near_message.qstash_message_id is not None
+
+    async def test_qstash_sync_callback_returns_404_outside_qstash_mode(self):
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as public_client:
+            response = await public_client.post(
+                "/api/internal/qstash/notifications/sync",
+                content=json.dumps({"kind": "notification_sync"}, separators=(",", ":")),
+                headers={"Content-Type": "application/json"},
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["detail"] == "QStash callbacks are disabled"

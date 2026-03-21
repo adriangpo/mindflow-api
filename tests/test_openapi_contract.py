@@ -58,3 +58,55 @@ def test_special_routes_expose_custom_openapi_contracts():
 
     health_operation = schema["paths"]["/health"]["get"]
     assert health_operation["summary"] == "Get health probe status"
+
+
+def test_export_job_examples_match_the_queued_job_contract():
+    """Ensure export-job examples stay aligned with the job creation response."""
+    schema = app.openapi()
+
+    expected_examples = {
+        "/api/patients/{patient_id}/export/pdf": "patient_complete_pdf",
+        "/api/medical-records/export/pdf": "medical_record_all_pdf",
+        "/api/medical-records/patients/{patient_id}/export/pdf": "medical_record_patient_history_pdf",
+        "/api/medical-records/{record_id}/export/pdf": "medical_record_single_pdf",
+        "/api/finance/report/export/pdf": "finance_report_pdf",
+    }
+
+    for path, expected_kind in expected_examples.items():
+        operation = schema["paths"][path]["post"]
+        example = operation["responses"]["202"]["content"]["application/json"]["examples"]["default"]
+        value = example.get("value", example)
+
+        assert value["kind"] == expected_kind
+        assert value["status"] == "queued"
+        assert value["progress_current"] == 0
+        assert value["progress_total"] == 3
+        assert value["progress_message"] == "Queued"
+
+
+def _has_tenant_header(operation: dict) -> bool:
+    return any("TenantHeader" in requirement for requirement in operation.get("security", []))
+
+
+def test_tenant_header_security_is_applied_only_to_tenant_routes():
+    """Ensure the custom tenant header contract stays scoped to tenant routes only."""
+    schema = app.openapi()
+
+    assert schema["components"]["securitySchemes"]["TenantHeader"]["name"] == "X-Tenant-ID"
+
+    tenant_operations = [
+        schema["paths"]["/api/exports/events"]["get"],
+        schema["paths"]["/api/notifications/settings"]["get"],
+        schema["paths"]["/api/patients"]["get"],
+        schema["paths"]["/api/schedule/appointments"]["get"],
+    ]
+    public_operations = [
+        schema["paths"]["/api/auth/login"]["post"],
+        schema["paths"]["/api/internal/qstash/exports/process"]["post"],
+        schema["paths"]["/api/internal/qstash/notifications/sync"]["post"],
+        schema["paths"]["/"]["get"],
+        schema["paths"]["/health"]["get"],
+    ]
+
+    assert all(_has_tenant_header(operation) for operation in tenant_operations)
+    assert all(not _has_tenant_header(operation) for operation in public_operations)

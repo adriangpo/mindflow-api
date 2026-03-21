@@ -347,8 +347,8 @@ Errors:
 ### OpenAPI and router-level enforcement (`src/main.py`)
 
 - `TenantMiddleware` is registered globally
-- tenant-protected routers (`schedule_config`, `schedule`, `patient`) are included with `dependencies=[Depends(require_tenant)]`
-- public/global routers include `tenant`, `user`, `auth` (no global `X-Tenant-ID` requirement)
+- tenant-protected routers (`export`, `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`) are included with `dependencies=[Depends(require_tenant)]`
+- public/global routers include `auth`, `user`, `tenant`, plus the internal QStash callback routers for `export` and `notification` (no global `X-Tenant-ID` requirement)
 - OpenAPI adds `TenantHeader` security requirement only for operations that depend on `require_tenant`
 
 ### Membership guard used by tenant-protected features
@@ -394,5 +394,5 @@ Transaction behavior:
 
 - `/api/tenants` endpoints are platform-admin endpoints; send bearer token with admin role.
 - If you send `is_active` in create/update payloads, backend parsing currently ignores it (no write effect).
-- For tenant-scoped product endpoints (schedule/patient/config), always send `X-Tenant-ID` with a valid UUID.
+- For tenant-scoped product endpoints (`/api/exports`, `/api/finance`, `/api/notifications`, `/api/schedule-configurations`, `/api/schedule`, `/api/patients`, `/api/medical-records`), always send `X-Tenant-ID` with a valid UUID.
 - Handle `400` tenant-header errors distinctly from `401/403` auth/authorization errors.

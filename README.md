@@ -32,6 +32,12 @@ Database configuration options:
 - `POSTGRES_URL` (full connection string override)
 - or `POSTGRES_USER` + `POSTGRES_PASSWORD` + `POSTGRES_DB` + `POSTGRES_HOST` + `POSTGRES_PORT`
 - `REDIS_URL`
+- `JOB_DISPATCH_MODE` (`redis_worker` or `qstash`)
+- `PUBLIC_BASE_URL` (required when `JOB_DISPATCH_MODE=qstash`)
+- `QSTASH_URL`
+- `QSTASH_TOKEN`
+- `QSTASH_CURRENT_SIGNING_KEY`
+- `QSTASH_NEXT_SIGNING_KEY`
 - `NOTIFICATION_PROVIDER` (`auto`, `stub`, or `twilio`)
 - `NOTIFICATION_BACKGROUND_DISPATCH_ENABLED` (default `true`)
 - `NOTIFICATION_DISPATCH_INTERVAL_SECONDS` (default `60`)
@@ -107,6 +113,8 @@ Tenant-protected endpoints require:
 3. Tenant membership validation
 
 Tenant-scoped tables use PostgreSQL RLS policies keyed by `app.current_tenant`.
+
+Internal QStash callback routes under `/api/internal/qstash/*` are public at the router layer, but they are protected by signed `Upstash-Signature` verification instead of `X-Tenant-ID`.
 
 Export flows are async:
 

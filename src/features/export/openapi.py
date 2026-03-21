@@ -14,14 +14,14 @@ OpenAPIResponses = dict[int | str, OpenAPIResponse]
 EXPORT_JOB_RESPONSE_EXAMPLE: dict[str, Any] = {
     "id": "0196f8a1-3d7d-7d0b-9a3c-2ad74a1f4c7a",
     "kind": "medical_record_all_pdf",
-    "status": "completed",
-    "progress_current": 3,
+    "status": "queued",
+    "progress_current": 0,
     "progress_total": 3,
-    "progress_message": "Export completed",
-    "download_url": "/api/exports/0196f8a1-3d7d-7d0b-9a3c-2ad74a1f4c7a/download",
+    "progress_message": "Queued",
+    "download_url": None,
     "error_detail": None,
     "created_at": "2026-03-21T13:00:00Z",
-    "updated_at": "2026-03-21T13:01:10Z",
+    "updated_at": "2026-03-21T13:00:00Z",
 }
 
 EXPORT_EVENT_STREAM_EXAMPLE = (

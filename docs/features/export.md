@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/export` manages creator-scoped async export jobs for medical records, patients, and finance reports. It stores job state in Redis, exposes generic progress/download endpoints, and streams status changes to the frontend with SSE. Execution is dual-mode: local and test environments use the resident Redis worker, while production can publish a signed QStash callback that processes the export inside a normal HTTP request.
+`src/features/export` manages creator-scoped async export jobs for medical records, patients, and finance reports. It stores job state in Redis, exposes generic progress/download endpoints, and streams status changes to the frontend with SSE. Dispatch mode is controlled by `JOB_DISPATCH_MODE`: `redis_worker` uses the resident Redis worker, while `qstash` publishes a signed callback that processes the export inside a normal HTTP request.
 
 ## Scope
 
@@ -133,7 +133,7 @@ Validation behavior:
 - download is allowed only when job status is `completed`
 - feature-specific initiation endpoints perform synchronous existence/range checks before queueing
 - the internal QStash callback requires the `Upstash-Signature` header and rejects unsigned or invalid callbacks with `401`
-- QStash callbacks return `404` when callbacks are disabled in the current environment
+- QStash callbacks return `404` when `JOB_DISPATCH_MODE` is not `qstash`
 
 ## Endpoints
 
