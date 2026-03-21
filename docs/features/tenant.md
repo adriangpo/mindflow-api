@@ -11,6 +11,7 @@ This document also covers the shared tenancy layer in `src/shared/tenancy`, beca
 Documented feature files:
 
 - `src/features/tenant/router.py`
+- `src/features/tenant/openapi.py`
 - `src/features/tenant/service.py`
 - `src/features/tenant/schemas.py`
 - `src/features/tenant/models.py`
@@ -139,6 +140,8 @@ Behavior:
 - if `slug` omitted:
   - auto-generate from `name` via `_slugify`
   - collision strategy: append `-2`, `-3`, ...
+- response body is `TenantResponse`
+- OpenAPI includes a created-tenant example and documents the `400` conflict cases for name, slug, and slug format
 
 Success:
 
@@ -166,6 +169,8 @@ Behavior:
 
 - returns active and inactive tenants (no `is_active` filter)
 - applies offset/limit only when pagination is enabled
+- response body is `TenantListResponse`
+- OpenAPI includes a paginated list example that shows both tenant data and pagination metadata
 
 Success:
 
@@ -180,6 +185,8 @@ Errors:
 ### `GET /api/tenants/{tenant_id}`
 
 Returns a tenant by UUID (active or inactive).
+
+The route is a global lookup and does not require tenant membership, only the admin role.
 
 Success:
 
@@ -210,6 +217,8 @@ Behavior:
   - updates `tenant.slug`
 - unknown extra fields are ignored by request model parsing
 - always sets `updated_at = now`
+- response body is `TenantResponse`
+- OpenAPI includes an updated-tenant example and the same `400` conflict cases used by creation
 
 Success:
 
@@ -235,10 +244,12 @@ Behavior:
 - sets `is_active = false`
 - sets `updated_at = now`
 - repeated calls keep tenant inactive (same final state)
+- response body is `TenantMessageResponse` with `message="Tenant deactivated successfully"`
+- OpenAPI documents the confirmation message explicitly
 
 Success:
 
-- `200` `{"message": "Tenant deactivated successfully"}`
+- `200` `TenantMessageResponse`
 
 Errors:
 
@@ -336,8 +347,8 @@ Errors:
 ### OpenAPI and router-level enforcement (`src/main.py`)
 
 - `TenantMiddleware` is registered globally
-- tenant-protected routers (`schedule_config`, `schedule`, `patient`) are included with `dependencies=[Depends(require_tenant)]`
-- public/global routers include `tenant`, `user`, `auth` (no global `X-Tenant-ID` requirement)
+- tenant-protected routers (`export`, `finance`, `notification`, `schedule_config`, `schedule`, `patient`, `medical_record`) are included with `dependencies=[Depends(require_tenant)]`
+- public/global routers include `auth`, `user`, `tenant`, plus the internal QStash callback routers for `export` and `notification` (no global `X-Tenant-ID` requirement)
 - OpenAPI adds `TenantHeader` security requirement only for operations that depend on `require_tenant`
 
 ### Membership guard used by tenant-protected features
@@ -383,5 +394,5 @@ Transaction behavior:
 
 - `/api/tenants` endpoints are platform-admin endpoints; send bearer token with admin role.
 - If you send `is_active` in create/update payloads, backend parsing currently ignores it (no write effect).
-- For tenant-scoped product endpoints (schedule/patient/config), always send `X-Tenant-ID` with a valid UUID.
+- For tenant-scoped product endpoints (`/api/exports`, `/api/finance`, `/api/notifications`, `/api/schedule-configurations`, `/api/schedule`, `/api/patients`, `/api/medical-records`), always send `X-Tenant-ID` with a valid UUID.
 - Handle `400` tenant-header errors distinctly from `401/403` auth/authorization errors.

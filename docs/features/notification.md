@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, manual dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events. Runtime coordination is dual-mode: local and test environments can use Redis-backed resident workers, while production can use one signed QStash callback per pending message plus one recurring daily reminder-backfill callback.
+`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, manual dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events. Dispatch mode is controlled by `JOB_DISPATCH_MODE`: `redis_worker` uses the resident Redis scheduler and delivery loops, while `qstash` publishes signed callbacks for per-message delivery plus one recurring reminder-backfill callback.
 
 ## Scope
 
@@ -20,7 +20,7 @@ Documented feature files:
 
 Direct dependencies used by this feature:
 
-- `src/features/auth/dependencies.py` (`require_role`, `require_tenant_membership`)
+- `src/features/auth/dependencies.py` (`require_tenant_membership`)
 - `src/database/dependencies.py` (`get_tenant_db_session`)
 - `src/database/client.py` (`get_session`, `set_tenant_context`)
 - `src/features/patient/models.py` (`Patient` lookups and default contact phone)
@@ -39,7 +39,7 @@ Direct dependencies used by this feature:
 sequenceDiagram
     participant Client
     participant Router as /api/notifications/*
-    participant Guard as require_role(owner|assistant) + require_tenant_membership
+    participant Guard as require_tenant_membership
     participant TenantDB as get_tenant_db_session
     participant Service as NotificationService
     participant DB as settings + profiles + messages
@@ -47,7 +47,7 @@ sequenceDiagram
     participant Backend as delivery backend
 
     Client->>Router: get/update settings or profiles, list messages, dispatch due
-    Router->>Guard: RBAC + tenant assignment
+    Router->>Guard: tenant assignment
     Guard-->>Router: authorized tenant user
     Router->>TenantDB: tenant-scoped session
     TenantDB-->>Router: session.info.tenant_id
@@ -206,7 +206,6 @@ QStash configuration and behavior:
 
 All `/api/notifications/*` endpoints require:
 
-- authenticated user with role `tenant_owner` OR `assistant`
 - valid `X-Tenant-ID` tenant context
 - authenticated user assigned to requested tenant
 
@@ -405,7 +404,11 @@ Behavior:
 
 Success:
 
-- `200` with the number of tenants scanned and messages scheduled
+- `200` `NotificationSyncResponse`
+- response fields:
+  - `tenant_count`: number of active tenants scanned
+  - `scheduled_count`: number of reminder messages published to QStash
+  - `failed_count`: number of reminder schedules that failed to publish
 
 ## Service Logic
 
@@ -458,14 +461,14 @@ Success:
 
 ### `run_notification_runtime()`
 
-- runs in app lifespan only when `JOB_DISPATCH_MODE=redis_worker`, `notification_background_dispatch_enabled=true`, and `testing=false`
+- runs in app lifespan only when `JOB_DISPATCH_MODE=redis_worker`, `NOTIFICATION_BACKGROUND_DISPATCH_ENABLED=true`, and `TESTING=false`
 - runs both:
   - a scheduler loop that moves due reminder ids from `notifications:schedule` into tenant delivery streams
   - a delivery loop that iterates active tenants, reads `notifications:deliveries:{tenant_id}`, claims stale entries with `XAUTOCLAIM`, and sends them
 
 ### `qstash.py`
 
-- publishes one signed callback per pending message that falls within the 7-day free-plan delay horizon
+- publishes one signed callback per pending message that falls within the 7-day delay horizon
 - stores the resulting callback id on `notification_messages.qstash_message_id`
 - cancels previously scheduled callbacks when reminders are invalidated or rescheduled
 - maintains one recurring daily callback that backfills reminders now inside the 7-day horizon
@@ -482,7 +485,7 @@ Dependency-originated errors:
 
 - `400` tenant header missing or invalid
 - `401` authentication failures
-- `403` role, tenant membership, inactive user, or locked user failures
+- `403` tenant membership, inactive user, or locked user failures
 
 Backend-originated delivery failures:
 
@@ -506,7 +509,7 @@ Backend-originated delivery failures:
 
 - Configure `/users/{user_id}` before expecting user notifications; there is no notification phone field on the base user entity.
 - Patient notifications use `patients.phone_number` by default. Use `/patients/{patient_id}` when a separate notification phone is needed or when reminder timing differs for one patient.
-- Use `/messages` to render notification history, troubleshoot failed deliveries, or inspect pending reminders.
+- Use `/api/notifications/messages` to render notification history, troubleshoot failed deliveries, or inspect pending reminders.
 - `pending` means queued but not yet due or not yet dispatched; `canceled` means the reminder was invalidated by appointment/state changes.
 - `POST /api/notifications/dispatch` is tenant-scoped and only drains work for the current tenant.
 - frontend clients must not call the internal QStash endpoints directly.

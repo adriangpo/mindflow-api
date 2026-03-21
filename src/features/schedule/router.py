@@ -6,12 +6,33 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
-from src.features.auth.dependencies import require_role, require_tenant_membership
+from src.features.auth.dependencies import require_tenant_membership
 from src.features.schedule_config.schemas import WeekDay
-from src.features.user.models import User, UserRole
+from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 from src.shared.redis import commit_with_staged_redis
 
+from .openapi import (
+    AVAILABILITY_DESCRIPTION,
+    AVAILABILITY_RESPONSES,
+    CREATE_APPOINTMENT_DESCRIPTION,
+    CREATE_APPOINTMENT_RESPONSES,
+    DEFAULTS_DESCRIPTION,
+    DEFAULTS_RESPONSES,
+    DELETE_APPOINTMENT_DESCRIPTION,
+    DELETE_APPOINTMENT_RESPONSES,
+    DETAIL_APPOINTMENT_DESCRIPTION,
+    DETAIL_APPOINTMENT_RESPONSES,
+    LIST_APPOINTMENTS_DESCRIPTION,
+    LIST_APPOINTMENTS_RESPONSES,
+    UPDATE_APPOINTMENT_DESCRIPTION,
+    UPDATE_APPOINTMENT_RESPONSES,
+    UPDATE_PAYMENT_DESCRIPTION,
+    UPDATE_PAYMENT_RESPONSES,
+    UPDATE_STATUS_DESCRIPTION,
+    UPDATE_STATUS_RESPONSES,
+    ScheduleMessageResponse,
+)
 from .schemas import (
     AppointmentHistoryEvent,
     AppointmentModality,
@@ -35,7 +56,6 @@ from .service import ScheduleService
 router = APIRouter(
     prefix="/schedule",
     tags=["Schedule Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT))],
 )
 
 
@@ -61,20 +81,34 @@ def _to_history_response(history_entry) -> ScheduleAppointmentHistoryResponse:
     )
 
 
-@router.post("/appointments", response_model=ScheduleAppointmentResponse)
+@router.post(
+    "/appointments",
+    response_model=ScheduleAppointmentResponse,
+    summary="Create an appointment",
+    description=CREATE_APPOINTMENT_DESCRIPTION,
+    response_description="The created appointment, including finance and warning fields.",
+    responses=CREATE_APPOINTMENT_RESPONSES,
+)
 async def create_appointment(
     data: ScheduleAppointmentCreateRequest,
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Create a new consultation appointment."""
+    """Create a tenant-scoped consultation appointment."""
     appointment = await ScheduleService.create_appointment(session, current_user.id, data)
     await commit_with_staged_redis(session)
     await session.refresh(appointment)
     return ScheduleAppointmentResponse.model_validate(appointment)
 
 
-@router.get("/appointments", response_model=ScheduleAppointmentListResponse)
+@router.get(
+    "/appointments",
+    response_model=ScheduleAppointmentListResponse,
+    summary="List appointments",
+    description=LIST_APPOINTMENTS_DESCRIPTION,
+    response_description="A paginated list of appointments that overlap the requested date window.",
+    responses=LIST_APPOINTMENTS_RESPONSES,
+)
 async def list_appointments(
     pagination: PaginationParams = Depends(),
     view: ScheduleCalendarView = Query(default=ScheduleCalendarView.DAY),
@@ -88,7 +122,7 @@ async def list_appointments(
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """List appointments by calendar view and filters."""
+    """List tenant appointments using overlap-based calendar filtering."""
     appointments, total = await ScheduleService.list_appointments(
         session=session,
         pagination=pagination,
@@ -109,14 +143,21 @@ async def list_appointments(
     )
 
 
-@router.get("/appointments/{appointment_id}", response_model=ScheduleAppointmentDetailResponse)
+@router.get(
+    "/appointments/{appointment_id}",
+    response_model=ScheduleAppointmentDetailResponse,
+    summary="Get appointment detail",
+    description=DETAIL_APPOINTMENT_DESCRIPTION,
+    response_description="The appointment record plus its latest-first history timeline.",
+    responses=DETAIL_APPOINTMENT_RESPONSES,
+)
 async def get_appointment_detail(
     appointment_id: int,
     include_deleted: bool = Query(default=False),
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Get appointment detail including timeline history."""
+    """Get an appointment and its timeline history."""
     appointment = await ScheduleService.require_appointment(session, appointment_id, include_deleted=include_deleted)
     history = await ScheduleService.get_appointment_history(session, appointment_id)
 
@@ -127,14 +168,21 @@ async def get_appointment_detail(
     )
 
 
-@router.put("/appointments/{appointment_id}", response_model=ScheduleAppointmentResponse)
+@router.put(
+    "/appointments/{appointment_id}",
+    response_model=ScheduleAppointmentResponse,
+    summary="Update an appointment",
+    description=UPDATE_APPOINTMENT_DESCRIPTION,
+    response_description="The updated appointment after all reschedule and finance rules are applied.",
+    responses=UPDATE_APPOINTMENT_RESPONSES,
+)
 async def update_appointment(
     appointment_id: int,
     data: ScheduleAppointmentUpdateRequest,
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Update appointment details and reschedule when datetime changes."""
+    """Update appointment fields and reschedule when datetimes change."""
     appointment = await ScheduleService.require_appointment(session, appointment_id)
     updated = await ScheduleService.update_appointment(session, current_user.id, appointment, data)
     await commit_with_staged_redis(session)
@@ -142,14 +190,21 @@ async def update_appointment(
     return ScheduleAppointmentResponse.model_validate(updated)
 
 
-@router.patch("/appointments/{appointment_id}/status", response_model=ScheduleAppointmentResponse)
+@router.patch(
+    "/appointments/{appointment_id}/status",
+    response_model=ScheduleAppointmentResponse,
+    summary="Change appointment status",
+    description=UPDATE_STATUS_DESCRIPTION,
+    response_description="The appointment after the status transition and timeline write.",
+    responses=UPDATE_STATUS_RESPONSES,
+)
 async def update_appointment_status(
     appointment_id: int,
     data: ScheduleAppointmentStatusUpdateRequest,
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Update appointment consultation status."""
+    """Update the consultation status for an appointment."""
     appointment = await ScheduleService.require_appointment(session, appointment_id)
     updated = await ScheduleService.update_appointment_status(session, current_user.id, appointment, data)
     await commit_with_staged_redis(session)
@@ -157,14 +212,21 @@ async def update_appointment_status(
     return ScheduleAppointmentResponse.model_validate(updated)
 
 
-@router.patch("/appointments/{appointment_id}/payment-status", response_model=ScheduleAppointmentResponse)
+@router.patch(
+    "/appointments/{appointment_id}/payment-status",
+    response_model=ScheduleAppointmentResponse,
+    summary="Change payment status",
+    description=UPDATE_PAYMENT_DESCRIPTION,
+    response_description="The appointment after the payment state change has been persisted.",
+    responses=UPDATE_PAYMENT_RESPONSES,
+)
 async def update_appointment_payment_status(
     appointment_id: int,
     data: ScheduleAppointmentPaymentStatusUpdateRequest,
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Update appointment payment status."""
+    """Update the payment status for an appointment."""
     appointment = await ScheduleService.require_appointment(session, appointment_id)
     updated = await ScheduleService.update_payment_status(
         session,
@@ -178,26 +240,40 @@ async def update_appointment_payment_status(
     return ScheduleAppointmentResponse.model_validate(updated)
 
 
-@router.delete("/appointments/{appointment_id}")
+@router.delete(
+    "/appointments/{appointment_id}",
+    response_model=ScheduleMessageResponse,
+    summary="Delete an appointment",
+    description=DELETE_APPOINTMENT_DESCRIPTION,
+    response_description="A confirmation message describing whether the appointment was deleted.",
+    responses=DELETE_APPOINTMENT_RESPONSES,
+)
 async def delete_appointment(
     appointment_id: int,
     data: ScheduleAppointmentDeleteRequest,
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Soft-delete an appointment in exceptional error scenarios."""
+    """Soft-delete an appointment after explicit confirmation."""
     appointment = await ScheduleService.require_appointment(session, appointment_id, include_deleted=True)
     await ScheduleService.delete_appointment(session, current_user.id, appointment, data)
     await commit_with_staged_redis(session)
     return {"message": "Appointment deleted successfully"}
 
 
-@router.get("/defaults", response_model=ScheduleDefaultsResponse)
+@router.get(
+    "/defaults",
+    response_model=ScheduleDefaultsResponse,
+    summary="Get schedule defaults",
+    description=DEFAULTS_DESCRIPTION,
+    response_description="The tenant's schedule configuration plus the fixed appointment defaults.",
+    responses=DEFAULTS_RESPONSES,
+)
 async def get_schedule_defaults(
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Get tenant default scheduling values from schedule configuration."""
+    """Get the tenant's default scheduling values."""
     configuration = await ScheduleService.get_defaults(session)
     return ScheduleDefaultsResponse(
         configuration_id=configuration.id,
@@ -212,7 +288,14 @@ async def get_schedule_defaults(
     )
 
 
-@router.get("/availability", response_model=ScheduleAvailabilityResponse)
+@router.get(
+    "/availability",
+    response_model=ScheduleAvailabilityResponse,
+    summary="Get schedule availability",
+    description=AVAILABILITY_DESCRIPTION,
+    response_description="Available slots for the selected date and the parameters used to calculate them.",
+    responses=AVAILABILITY_RESPONSES,
+)
 async def get_schedule_availability(
     target_date: date = Query(...),
     slot_duration_minutes: int | None = Query(default=None, gt=0),
@@ -220,7 +303,7 @@ async def get_schedule_availability(
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """List available slots for the selected date."""
+    """Calculate the open slots for one date."""
     working_day, duration, interval, slots = await ScheduleService.get_available_slots(
         session,
         target_date,

@@ -88,6 +88,11 @@ class TestTenantRLSPolicies:
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 WHERE n.nspname = 'public'
                   AND c.relname IN (
+                      'financial_entries',
+                      'notification_settings',
+                      'notification_patient_preferences',
+                      'notification_user_profiles',
+                      'notification_messages',
                       'schedule_configurations',
                       'patients',
                       'schedule_appointments',
@@ -98,7 +103,7 @@ class TestTenantRLSPolicies:
                 """))
         rows = result.mappings().all()
 
-        assert len(rows) == 5
+        assert len(rows) == 10
         assert all(row["rls_enabled"] for row in rows)
         assert all(row["has_policy"] for row in rows)
 

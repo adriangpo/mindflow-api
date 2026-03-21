@@ -15,6 +15,11 @@ from .exceptions import (
     ScheduleConfigurationAlreadyExists,
     ScheduleConfigurationNotFound,
 )
+from .openapi import (
+    SCHEDULE_CONFIGURATION_DELETE_EXAMPLE,
+    ScheduleConfigurationDeleteResponse,
+    ScheduleConfigurationErrorResponse,
+)
 from .schemas import (
     ScheduleConfigurationCreateRequest,
     ScheduleConfigurationListResponse,
@@ -26,7 +31,46 @@ from .service import ScheduleConfigurationService, is_tenant_unique_violation
 router = APIRouter(prefix="/schedule-configurations", tags=["Schedule Configuration"])
 
 
-@router.post("", response_model=ScheduleConfigurationResponse)
+@router.post(
+    "",
+    response_model=ScheduleConfigurationResponse,
+    summary="Create tenant schedule configuration",
+    description=(
+        "Creates the single schedule configuration for the current tenant. "
+        "The creator is recorded as `user_id`, but the configuration applies to the entire tenant. "
+        "The API rejects a second configuration for the same tenant both before and after the database commit "
+        "so concurrent requests still surface a `409` conflict. "
+        "The time window must be valid (`start_time` earlier than `end_time`) and at least one working day "
+        "must be supplied."
+    ),
+    response_description="Created tenant schedule configuration.",
+    responses={
+        409: {
+            "model": ScheduleConfigurationErrorResponse,
+            "description": "A configuration already exists for the current tenant.",
+            "content": {
+                "application/json": {"example": {"detail": "Schedule configuration already exists for this tenant"}}
+            },
+        },
+        422: {
+            "description": "Request body validation failed.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "type": "value_error",
+                                "loc": ["body", "start_time"],
+                                "msg": "start_time must be earlier than end_time",
+                                "input": "18:00:00",
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    },
+)
 async def create_schedule_configuration(
     data: ScheduleConfigurationCreateRequest,
     current_user: User = Depends(require_tenant_membership),
@@ -45,7 +89,19 @@ async def create_schedule_configuration(
     return ScheduleConfigurationResponse.model_validate(configuration)
 
 
-@router.get("", response_model=ScheduleConfigurationListResponse)
+@router.get(
+    "",
+    response_model=ScheduleConfigurationListResponse,
+    summary="List tenant schedule configurations",
+    description=(
+        "Returns the schedule configuration rows visible to the current tenant. "
+        "The service still scopes every query with the tenant context, so the endpoint "
+        "never leaks data across tenants. "
+        "Pagination is supported through `page` and `page_size`; when either value is omitted, the response still "
+        "returns `page=1` and `page_size=50` as defaults."
+    ),
+    response_description="Paginated schedule configuration list for the current tenant.",
+)
 async def list_schedule_configurations(
     pagination: PaginationParams = Depends(),
     _: User = Depends(require_tenant_membership),
@@ -64,7 +120,24 @@ async def list_schedule_configurations(
     )
 
 
-@router.get("/{configuration_id}", response_model=ScheduleConfigurationResponse)
+@router.get(
+    "/{configuration_id}",
+    response_model=ScheduleConfigurationResponse,
+    summary="Get tenant schedule configuration",
+    description=(
+        "Loads one schedule configuration by id inside the current tenant scope. "
+        "A configuration that exists in another tenant is treated as not found. "
+        "The endpoint returns `404` when the configuration id is missing, deleted, or belongs to another tenant."
+    ),
+    response_description="Schedule configuration details for the current tenant.",
+    responses={
+        404: {
+            "model": ScheduleConfigurationErrorResponse,
+            "description": "No schedule configuration exists for the requested id in this tenant.",
+            "content": {"application/json": {"example": {"detail": "Schedule configuration not found"}}},
+        }
+    },
+)
 async def get_schedule_configuration(
     configuration_id: int,
     _: User = Depends(require_tenant_membership),
@@ -78,7 +151,49 @@ async def get_schedule_configuration(
     return ScheduleConfigurationResponse.model_validate(configuration)
 
 
-@router.put("/{configuration_id}", response_model=ScheduleConfigurationResponse)
+@router.put(
+    "/{configuration_id}",
+    response_model=ScheduleConfigurationResponse,
+    summary="Update tenant schedule configuration",
+    description=(
+        "Updates one schedule configuration in the current tenant. "
+        "Only the provided fields are changed. The router then merges the stored configuration with the incoming "
+        "payload and re-validates the final state using the creation schema, which means a partial update can still "
+        "fail with `422` if it produces an invalid time window. "
+        "A missing configuration returns `404`."
+    ),
+    response_description="Updated tenant schedule configuration.",
+    responses={
+        404: {
+            "model": ScheduleConfigurationErrorResponse,
+            "description": "No schedule configuration exists for the requested id in this tenant.",
+            "content": {"application/json": {"example": {"detail": "Schedule configuration not found"}}},
+        },
+        422: {
+            "description": "Request body or merged-state validation failed.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": [
+                            {
+                                "type": "value_error",
+                                "loc": ["body", "__root__"],
+                                "msg": "start_time must be earlier than end_time",
+                                "input": {
+                                    "working_days": ["monday"],
+                                    "start_time": "18:00:00",
+                                    "end_time": "08:00:00",
+                                    "appointment_duration_minutes": 50,
+                                    "break_between_appointments_minutes": 10,
+                                },
+                            }
+                        ]
+                    }
+                }
+            },
+        },
+    },
+)
 async def update_schedule_configuration(
     configuration_id: int,
     data: ScheduleConfigurationUpdateRequest,
@@ -122,7 +237,28 @@ async def update_schedule_configuration(
     return ScheduleConfigurationResponse.model_validate(updated)
 
 
-@router.delete("/{configuration_id}")
+@router.delete(
+    "/{configuration_id}",
+    response_model=ScheduleConfigurationDeleteResponse,
+    summary="Delete tenant schedule configuration",
+    description=(
+        "Deletes the current tenant's configuration by id. "
+        "This is a hard delete, not a soft delete, so the row is removed from `schedule_configurations` entirely. "
+        "The router first resolves the configuration in tenant scope and returns `404` if it does not exist."
+    ),
+    response_description="Deletion acknowledgement.",
+    responses={
+        404: {
+            "model": ScheduleConfigurationErrorResponse,
+            "description": "No schedule configuration exists for the requested id in this tenant.",
+            "content": {"application/json": {"example": {"detail": "Schedule configuration not found"}}},
+        },
+        200: {
+            "description": "Deletion acknowledgement.",
+            "content": {"application/json": {"example": SCHEDULE_CONFIGURATION_DELETE_EXAMPLE["value"]}},
+        },
+    },
+)
 async def delete_schedule_configuration(
     configuration_id: int,
     _: User = Depends(require_tenant_membership),

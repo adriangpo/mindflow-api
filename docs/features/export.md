@@ -2,13 +2,14 @@
 
 ## Purpose
 
-`src/features/export` manages creator-scoped async export jobs for medical records, patients, and finance reports. It stores job state in Redis, exposes generic progress/download endpoints, and streams status changes to the frontend with SSE. Execution is dual-mode: local and test environments use the resident Redis worker, while production can publish a signed QStash callback that processes the export inside a normal HTTP request.
+`src/features/export` manages creator-scoped async export jobs for medical records, patients, and finance reports. It stores job state in Redis, exposes generic progress/download endpoints, and streams status changes to the frontend with SSE. Dispatch mode is controlled by `JOB_DISPATCH_MODE`: `redis_worker` uses the resident Redis worker, while `qstash` publishes a signed callback that processes the export inside a normal HTTP request.
 
 ## Scope
 
 Documented feature files:
 
 - `src/features/export/router.py`
+- `src/features/export/openapi.py`
 - `src/features/export/service.py`
 - `src/features/export/schemas.py`
 - `src/features/export/runtime.py`
@@ -105,6 +106,19 @@ Public response fields:
 - `created_at`
 - `updated_at`
 
+### `ExportProcessCallbackRequest`
+
+Used by `POST /api/internal/qstash/exports/process`:
+
+- `job_id`: required string identifying the queued export job
+
+### `ExportProcessCallbackResponse`
+
+Returned by `POST /api/internal/qstash/exports/process` after the callback is accepted:
+
+- `job_id`: processed export job id
+- `status`: final export status, usually `completed` or `failed`
+
 ### `FinanceReportExportRequest`
 
 Used by `POST /api/finance/report/export/pdf`:
@@ -118,6 +132,8 @@ Validation behavior:
 - generic export endpoints are creator-scoped and tenant-scoped; a job created by another user is returned as `404`
 - download is allowed only when job status is `completed`
 - feature-specific initiation endpoints perform synchronous existence/range checks before queueing
+- the internal QStash callback requires the `Upstash-Signature` header and rejects unsigned or invalid callbacks with `401`
+- QStash callbacks return `404` when `JOB_DISPATCH_MODE` is not `qstash`
 
 ## Endpoints
 
@@ -134,6 +150,7 @@ Behavior:
 - `data:` contains the JSON-serialized `ExportJobResponse`
 - sends keepalive comments when no export update is available
 - only receives events for jobs created by the current user in the current tenant
+- the stream is not a history replay; it only publishes new snapshot updates from the creator-specific Redis stream
 
 Success:
 
@@ -146,6 +163,12 @@ Errors:
 ### `GET /api/exports/{job_id}`
 
 Returns the latest snapshot for one export job.
+
+Behavior:
+
+- requires a valid bearer token and tenant membership
+- returns `404` when the job belongs to another tenant or another user, even if the id exists
+- includes `download_url` only after the job reaches `completed`
 
 Success:
 
@@ -164,6 +187,8 @@ Behavior:
 - local storage mode resolves the file from the stored relative path under `storage/`
 - S3-compatible storage mode returns a short-lived redirect to a presigned object URL
 - always enforces creator and tenant scoping before resolving the asset
+- returns `409` if the job is not complete yet or the file metadata is incomplete
+- returns `404` if the job does not exist, is owned by another user, or the file cannot be found in storage
 
 Success:
 
@@ -184,6 +209,8 @@ Behavior:
 - requires a valid `Upstash-Signature` header over the raw request body
 - accepts `{ "job_id": "<id>" }`
 - processes the queued job idempotently
+- returns the processed `job_id` and final `status`
+- repeated callbacks after the job is already `completed` or `failed` are ignored by the service layer
 
 Success:
 
@@ -225,6 +252,9 @@ Feature-level HTTP errors:
 - `404` `Export file not found`
 - `409` `Export job is not completed yet`
 - `409` `Export file metadata is incomplete`
+- `401` `Missing QStash signature`
+- `401` `Invalid QStash signature`
+- `404` `QStash callbacks are disabled`
 
 Runtime behavior:
 

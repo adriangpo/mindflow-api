@@ -14,6 +14,33 @@ from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import PatientCpfAlreadyExists
+from .openapi import (
+    COMPLETE_REGISTRATION_DESCRIPTION,
+    CREATE_PATIENT_DESCRIPTION,
+    EXPORT_PATIENT_DESCRIPTION,
+    GET_PATIENT_DESCRIPTION,
+    INACTIVATE_PATIENT_DESCRIPTION,
+    LIST_PATIENTS_DESCRIPTION,
+    PATIENT_COMPLETE_REGISTRATION_RESPONSES,
+    PATIENT_CREATE_RESPONSES,
+    PATIENT_DELETE_RESPONSE_DOC,
+    PATIENT_DELETE_RESPONSES,
+    PATIENT_EXPORT_RESPONSE_DOC,
+    PATIENT_EXPORT_RESPONSES,
+    PATIENT_GET_RESPONSES,
+    PATIENT_LIST_RESPONSE_DOC,
+    PATIENT_LIST_RESPONSES,
+    PATIENT_PROFILE_PHOTO_RESPONSES,
+    PATIENT_QUICK_REGISTER_RESPONSES,
+    PATIENT_REACTIVATE_RESPONSES,
+    PATIENT_RESPONSE_DOC,
+    PATIENT_UPDATE_RESPONSES,
+    PROFILE_PHOTO_DESCRIPTION,
+    QUICK_REGISTER_DESCRIPTION,
+    REACTIVATE_PATIENT_DESCRIPTION,
+    UPDATE_PATIENT_DESCRIPTION,
+    PatientMessageResponse,
+)
 from .schemas import (
     PatientCompleteRegistrationRequest,
     PatientCreateRequest,
@@ -52,7 +79,14 @@ def _merged_registered_payload(patient, data: PatientUpdateRequest) -> dict:
     }
 
 
-@router.post("", response_model=PatientResponse)
+@router.post(
+    "",
+    response_model=PatientResponse,
+    summary="Create a fully registered patient",
+    description=CREATE_PATIENT_DESCRIPTION,
+    response_description="The created patient record for the current tenant.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_CREATE_RESPONSES},
+)
 async def create_patient(
     data: PatientCreateRequest,
     _: User = Depends(require_tenant_membership),
@@ -71,7 +105,14 @@ async def create_patient(
     return PatientResponse.model_validate(patient)
 
 
-@router.post("/quick-register", response_model=PatientResponse)
+@router.post(
+    "/quick-register",
+    response_model=PatientResponse,
+    summary="Create a quick-registration patient",
+    description=QUICK_REGISTER_DESCRIPTION,
+    response_description="The newly created quick-registration patient.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_QUICK_REGISTER_RESPONSES},
+)
 async def quick_register_patient(
     data: PatientQuickCreateRequest,
     _: User = Depends(require_tenant_membership),
@@ -84,16 +125,34 @@ async def quick_register_patient(
     return PatientResponse.model_validate(patient)
 
 
-@router.get("", response_model=PatientListResponse)
+@router.get(
+    "",
+    response_model=PatientListResponse,
+    summary="List tenant patients",
+    description=LIST_PATIENTS_DESCRIPTION,
+    response_description="Paginated tenant patient collection.",
+    responses={**PATIENT_LIST_RESPONSE_DOC, **PATIENT_LIST_RESPONSES},
+)
 async def list_patients(
     pagination: PaginationParams = Depends(),
-    search: str | None = Query(default=None, min_length=1, max_length=255),
-    active_only: bool = Query(default=True),
-    is_registered: bool | None = Query(default=None),
+    search: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Case-insensitive search over full name, CPF, or phone number.",
+    ),
+    active_only: bool = Query(
+        default=True,
+        description="When true, returns only active patients. Set false to include inactive rows.",
+    ),
+    is_registered: bool | None = Query(
+        default=None,
+        description="Filter by registration state when provided.",
+    ),
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """List patients from tenant with search and status filters."""
+    """List patients from tenant with search, activity, and registration filters."""
     items, total = await PatientService.list_patients(
         session=session,
         pagination=pagination,
@@ -109,7 +168,14 @@ async def list_patients(
     )
 
 
-@router.get("/{patient_id}", response_model=PatientResponse)
+@router.get(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="Get one patient",
+    description=GET_PATIENT_DESCRIPTION,
+    response_description="The requested patient from the current tenant.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_GET_RESPONSES},
+)
 async def get_patient(
     patient_id: int,
     _: User = Depends(require_tenant_membership),
@@ -120,7 +186,15 @@ async def get_patient(
     return PatientResponse.model_validate(patient)
 
 
-@router.post("/{patient_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{patient_id}/export/pdf",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a patient dossier export",
+    description=EXPORT_PATIENT_DESCRIPTION,
+    response_description="Queued export job for later polling or download.",
+    responses={**PATIENT_EXPORT_RESPONSE_DOC, **PATIENT_EXPORT_RESPONSES},
+)
 async def export_patient_complete_pdf(
     patient_id: int,
     current_user: User = Depends(require_tenant_membership),
@@ -136,7 +210,14 @@ async def export_patient_complete_pdf(
     )
 
 
-@router.put("/{patient_id}", response_model=PatientResponse)
+@router.put(
+    "/{patient_id}",
+    response_model=PatientResponse,
+    summary="Update a patient",
+    description=UPDATE_PATIENT_DESCRIPTION,
+    response_description="The updated patient record after the partial update is applied.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_UPDATE_RESPONSES},
+)
 async def update_patient(
     patient_id: int,
     data: PatientUpdateRequest,
@@ -168,7 +249,14 @@ async def update_patient(
     return PatientResponse.model_validate(updated)
 
 
-@router.post("/{patient_id}/complete-registration", response_model=PatientResponse)
+@router.post(
+    "/{patient_id}/complete-registration",
+    response_model=PatientResponse,
+    summary="Complete patient registration",
+    description=COMPLETE_REGISTRATION_DESCRIPTION,
+    response_description="The patient after full registration has been completed.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_COMPLETE_REGISTRATION_RESPONSES},
+)
 async def complete_patient_registration(
     patient_id: int,
     data: PatientCompleteRegistrationRequest,
@@ -191,7 +279,14 @@ async def complete_patient_registration(
     return PatientResponse.model_validate(updated)
 
 
-@router.patch("/{patient_id}/profile-photo", response_model=PatientResponse)
+@router.patch(
+    "/{patient_id}/profile-photo",
+    response_model=PatientResponse,
+    summary="Update patient profile photo",
+    description=PROFILE_PHOTO_DESCRIPTION,
+    response_description="The patient after the profile photo URL is updated.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_PROFILE_PHOTO_RESPONSES},
+)
 async def update_patient_profile_photo(
     patient_id: int,
     data: PatientProfilePhotoUpdateRequest,
@@ -210,7 +305,14 @@ async def update_patient_profile_photo(
     return PatientResponse.model_validate(updated)
 
 
-@router.delete("/{patient_id}")
+@router.delete(
+    "/{patient_id}",
+    response_model=PatientMessageResponse,
+    summary="Inactivate a patient",
+    description=INACTIVATE_PATIENT_DESCRIPTION,
+    response_description="A confirmation message explaining that the patient was inactivated.",
+    responses={**PATIENT_DELETE_RESPONSE_DOC, **PATIENT_DELETE_RESPONSES},
+)
 async def inactivate_patient(
     patient_id: int,
     _: User = Depends(require_tenant_membership),
@@ -223,7 +325,14 @@ async def inactivate_patient(
     return {"message": "Patient inactivated successfully"}
 
 
-@router.post("/{patient_id}/reactivate", response_model=PatientResponse)
+@router.post(
+    "/{patient_id}/reactivate",
+    response_model=PatientResponse,
+    summary="Reactivate a patient",
+    description=REACTIVATE_PATIENT_DESCRIPTION,
+    response_description="The patient after the reactivation is applied.",
+    responses={**PATIENT_RESPONSE_DOC, **PATIENT_REACTIVATE_RESPONSES},
+)
 async def reactivate_patient(
     patient_id: int,
     _: User = Depends(require_tenant_membership),

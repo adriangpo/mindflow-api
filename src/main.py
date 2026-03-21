@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -43,6 +44,19 @@ logger = logging.getLogger(__name__)
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
+
+
+class RootResponse(BaseModel):
+    """Availability payload returned by the root endpoint."""
+
+    message: str = Field(description="Human-readable service name.", examples=["Mindflow API"])
+    status: str = Field(description="High-level service status reported by the app root.", examples=["running"])
+
+
+class HealthResponse(BaseModel):
+    """Minimal health-check payload used by infrastructure probes."""
+
+    status: str = Field(description="Probe result returned by the health endpoint.", examples=["healthy"])
 
 
 async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -237,13 +251,33 @@ for router in tenant_routers:
     )
 
 
-@app.get("/")
+@app.get(
+    "/",
+    response_model=RootResponse,
+    summary="Get basic API availability",
+    description=(
+        "Returns a lightweight service banner used for quick manual checks. "
+        "This route does not verify downstream dependencies such as PostgreSQL or Redis; "
+        "it only confirms that the FastAPI application process is serving requests."
+    ),
+    response_description="Basic application identification and process-level availability state.",
+)
 async def root():
     """Root endpoint used as a basic availability probe."""
     return {"message": "Mindflow API", "status": "running"}
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Get health probe status",
+    description=(
+        "Returns the health-check payload expected by monitoring and orchestration systems. "
+        "This endpoint is intentionally minimal and should be treated as a liveness probe, "
+        "not a full readiness or dependency verification endpoint."
+    ),
+    response_description="Liveness-style probe result for infrastructure health checks.",
+)
 async def health():
     """Health endpoint used by monitoring and orchestration checks."""
     return {"status": "healthy"}

@@ -14,7 +14,15 @@ from src.features.user.models import User
 from src.shared.qstash import verify_qstash_request
 from src.shared.redis import get_redis
 
-from .schemas import ExportProcessCallbackRequest
+from .openapi import (
+    EXPORT_DOWNLOAD_RESPONSES,
+    EXPORT_EVENTS_RESPONSES,
+    EXPORT_JOB_NOT_FOUND_RESPONSE,
+    EXPORT_PROCESS_CALLBACK_OPENAPI_EXTRA,
+    EXPORT_PROCESS_CALLBACK_RESPONSES,
+    ExportProcessCallbackResponse,
+)
+from .schemas import ExportJobResponse, ExportProcessCallbackRequest
 from .service import ExportService
 
 router = APIRouter(
@@ -52,7 +60,19 @@ async def _event_stream(tenant_id, user_id) -> AsyncGenerator[str]:
             yield f"event: export.updated\ndata: {fields['data']}\n\n"
 
 
-@router.get("/events")
+@router.get(
+    "/events",
+    summary="Stream export job updates",
+    description=(
+        "Open a server-sent events stream for the authenticated user in the current tenant. "
+        "The stream is creator-scoped: it only delivers jobs created by the current user and never replays "
+        "other users' events. The first frame is a connection marker, followed by `export.updated` events "
+        "whose `data` payload is the JSON-serialized export job snapshot. When no updates are available, the "
+        "endpoint emits keepalive comments at the configured SSE interval."
+    ),
+    response_description="Server-sent events stream with creator-scoped export job updates.",
+    responses=EXPORT_EVENTS_RESPONSES,
+)
 async def export_events(
     request: Request,
     current_user: User = Depends(require_tenant_membership),
@@ -69,7 +89,19 @@ async def export_events(
     )
 
 
-@router.get("/{job_id}")
+@router.get(
+    "/{job_id}",
+    response_model=ExportJobResponse,
+    summary="Get export job status",
+    description=(
+        "Return the latest public snapshot for one export job. The job must belong to the authenticated user "
+        "and the active tenant; otherwise the API intentionally responds with `404` to avoid leaking job "
+        "existence across tenants or creators. The response includes the current state, progress counters, "
+        "error detail when applicable, and the download URL once the export completes."
+    ),
+    response_description="Current export job snapshot.",
+    responses={404: EXPORT_JOB_NOT_FOUND_RESPONSE},
+)
 async def get_export_job(
     job_id: str,
     request: Request,
@@ -80,7 +112,19 @@ async def get_export_job(
     return await ExportService.get_job_for_user(job_id, tenant_id=tenant_id, user_id=current_user.id)
 
 
-@router.get("/{job_id}/download")
+@router.get(
+    "/{job_id}/download",
+    summary="Download an export file",
+    description=(
+        "Download a completed export file for the authenticated user in the current tenant. The route is "
+        "creator-scoped and tenant-scoped, and it only succeeds after the job reaches `completed`. In local "
+        "storage mode the response is a direct file download. In S3-compatible storage mode the API returns a "
+        "`307 Temporary Redirect` to a presigned object URL. The file metadata must include the stored path, "
+        "filename, and content type; otherwise the request fails with `409`."
+    ),
+    response_description="Binary file download or temporary redirect to a presigned URL.",
+    responses=EXPORT_DOWNLOAD_RESPONSES,
+)
 async def download_export_file(
     job_id: str,
     request: Request,
@@ -100,7 +144,20 @@ async def download_export_file(
     return RedirectResponse(download.url, status_code=307)
 
 
-@internal_router.post("/process")
+@internal_router.post(
+    "/process",
+    summary="Process an internal export callback",
+    description=(
+        "Process a signed QStash callback for one queued export job. This endpoint is only available when "
+        "QStash callbacks are enabled. It requires the `Upstash-Signature` header, validates the raw JSON "
+        "payload, and executes the export idempotently. Repeated callbacks after a job has already completed "
+        "or failed are ignored."
+    ),
+    response_model=ExportProcessCallbackResponse,
+    response_description="Processed job identifier and final status.",
+    responses=EXPORT_PROCESS_CALLBACK_RESPONSES,
+    openapi_extra=EXPORT_PROCESS_CALLBACK_OPENAPI_EXTRA,
+)
 async def process_export_job_callback(
     request: Request,
     session: AsyncSession = Depends(get_db_session),
