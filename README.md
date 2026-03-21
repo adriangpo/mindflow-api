@@ -46,6 +46,7 @@ For Docker runs, API container uses `POSTGRES_URL` when provided; otherwise it b
 Default `.env.example` sets `POSTGRES_HOST=postgres` for Docker networking.
 If you run API locally (outside Docker), set `POSTGRES_HOST=localhost`.
 Default `.env.example` also sets `REDIS_URL=redis://redis:6379/0` for Docker networking.
+For Neon pooled connections with `postgresql+asyncpg`, you can paste the copied Neon URL directly even if it includes libpq-style options such as `sslmode=require`, `channel_binding=require`, or `sslnegotiation=direct`; the app normalizes those for asyncpg at startup.
 
 ### 3. Start services (Docker)
 

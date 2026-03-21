@@ -3,9 +3,11 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -16,6 +18,51 @@ logger = logging.getLogger(__name__)
 # Global SQLAlchemy engine
 _engine: AsyncEngine | None = None
 _async_session_factory: async_sessionmaker[AsyncSession] | None = None
+
+
+def _normalize_query_value(value: str | tuple[str, ...] | None) -> str | None:
+    """Collapse SQLAlchemy URL query values into one normalized string."""
+    if value is None:
+        return None
+    if isinstance(value, tuple):
+        if not value:
+            return None
+        return value[-1]
+    return value
+
+
+def _normalize_asyncpg_engine_configuration(database_url: str) -> tuple[URL, dict[str, Any]]:
+    """Normalize one PostgreSQL URL for SQLAlchemy's asyncpg dialect.
+
+    Neon and other providers often expose libpq-oriented query parameters such
+    as ``sslmode=require`` or ``channel_binding=require`` in copied connection
+    strings. SQLAlchemy's asyncpg dialect forwards unknown query parameters as
+    keyword arguments to ``asyncpg.connect()``, which rejects those libpq-only
+    names. This helper rewrites the supported subset into asyncpg-compatible
+    connect arguments and drops unsupported ones.
+    """
+    url = make_url(database_url)
+    normalized_query = dict(url.query)
+    connect_args: dict[str, Any] = {
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+    }
+
+    sslmode = _normalize_query_value(normalized_query.pop("sslmode", None))
+    if sslmode is not None and "ssl" not in normalized_query:
+        connect_args["ssl"] = sslmode
+
+    sslnegotiation = _normalize_query_value(normalized_query.pop("sslnegotiation", None))
+    if sslnegotiation is not None:
+        if sslnegotiation.lower() == "direct":
+            connect_args["direct_tls"] = True
+        else:
+            logger.warning("Ignoring unsupported sslnegotiation value for asyncpg: %s", sslnegotiation)
+
+    channel_binding = _normalize_query_value(normalized_query.pop("channel_binding", None))
+    if channel_binding is not None:
+        logger.warning("Ignoring unsupported channel_binding value for asyncpg: %s", channel_binding)
+
+    return url.set(query=normalized_query), connect_args
 
 
 def get_engine() -> AsyncEngine:
@@ -87,16 +134,15 @@ async def init_db() -> None:
 
     try:
         logger.info("Connecting to PostgreSQL at %s", settings.postgres_url.split("@")[-1])
+        engine_url, connect_args = _normalize_asyncpg_engine_configuration(settings.postgres_url)
 
         # Create async engine
         _engine = create_async_engine(
-            settings.postgres_url,
+            engine_url,
             echo=settings.postgres_echo,
             poolclass=NullPool,
             pool_pre_ping=True,
-            connect_args={
-                "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
-            },
+            connect_args=connect_args,
         )
 
         # Create session factory
