@@ -12,6 +12,24 @@ from src.features.export.service import ExportService
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
 
+from .openapi import (
+    CREATE_MEDICAL_RECORD_RESPONSES,
+    DETAIL_MEDICAL_RECORD_RESPONSES,
+    EXPORT_ALL_MEDICAL_RECORD_RESPONSES,
+    EXPORT_PATIENT_HISTORY_RESPONSES,
+    EXPORT_SINGLE_RESPONSES,
+    HISTORY_MEDICAL_RECORDS_RESPONSES,
+    LIST_MEDICAL_RECORDS_RESPONSES,
+    MEDICAL_RECORD_CREATE_DESCRIPTION,
+    MEDICAL_RECORD_DETAIL_DESCRIPTION,
+    MEDICAL_RECORD_EXPORT_ALL_DESCRIPTION,
+    MEDICAL_RECORD_EXPORT_PATIENT_DESCRIPTION,
+    MEDICAL_RECORD_EXPORT_SINGLE_DESCRIPTION,
+    MEDICAL_RECORD_HISTORY_DESCRIPTION,
+    MEDICAL_RECORD_LIST_DESCRIPTION,
+    MEDICAL_RECORD_UPDATE_DESCRIPTION,
+    UPDATE_MEDICAL_RECORD_RESPONSES,
+)
 from .schemas import (
     MedicalRecordCreateRequest,
     MedicalRecordListResponse,
@@ -28,7 +46,14 @@ router = APIRouter(
 )
 
 
-@router.post("", response_model=MedicalRecordResponse)
+@router.post(
+    "",
+    response_model=MedicalRecordResponse,
+    summary="Create a medical record",
+    description=MEDICAL_RECORD_CREATE_DESCRIPTION,
+    response_description="The newly created consultation note for the current tenant.",
+    responses=CREATE_MEDICAL_RECORD_RESPONSES,
+)
 async def create_medical_record(
     data: MedicalRecordCreateRequest,
     current_user: User = Depends(require_tenant_membership),
@@ -41,14 +66,32 @@ async def create_medical_record(
     return MedicalRecordResponse.model_validate(record)
 
 
-@router.get("", response_model=MedicalRecordListResponse)
+@router.get(
+    "",
+    response_model=MedicalRecordListResponse,
+    summary="List medical records",
+    description=MEDICAL_RECORD_LIST_DESCRIPTION,
+    response_description="Paginated consultation notes for the current tenant.",
+    responses=LIST_MEDICAL_RECORDS_RESPONSES,
+)
 async def list_medical_records(
     pagination: PaginationParams = Depends(),
-    patient_id: int | None = Query(default=None, gt=0),
-    appointment_id: int | None = Query(default=None, gt=0),
-    search: str | None = Query(default=None, min_length=1, max_length=255),
-    start_date: date | None = Query(default=None),
-    end_date: date | None = Query(default=None),
+    patient_id: int | None = Query(default=None, gt=0, description="Filter by a specific patient id."),
+    appointment_id: int | None = Query(default=None, gt=0, description="Filter by a specific appointment id."),
+    search: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description="Free-text search across title, content, clinical assessment, and treatment plan.",
+    ),
+    start_date: date | None = Query(
+        default=None,
+        description="Include records whose recorded date is on or after this value.",
+    ),
+    end_date: date | None = Query(
+        default=None,
+        description="Include records whose recorded date is on or before this value.",
+    ),
     _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
@@ -71,7 +114,14 @@ async def list_medical_records(
     )
 
 
-@router.get("/patients/{patient_id}/history", response_model=MedicalRecordPatientHistoryResponse)
+@router.get(
+    "/patients/{patient_id}/history",
+    response_model=MedicalRecordPatientHistoryResponse,
+    summary="Get patient medical record history",
+    description=MEDICAL_RECORD_HISTORY_DESCRIPTION,
+    response_description="Paginated consultation history for one patient in the current tenant.",
+    responses=HISTORY_MEDICAL_RECORDS_RESPONSES,
+)
 async def get_patient_medical_record_history(
     patient_id: int,
     pagination: PaginationParams = Depends(),
@@ -89,7 +139,15 @@ async def get_patient_medical_record_history(
     )
 
 
-@router.post("/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/export/pdf",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a PDF export for all medical records",
+    description=MEDICAL_RECORD_EXPORT_ALL_DESCRIPTION,
+    response_description="Generic export job metadata for the queued PDF export.",
+    responses=EXPORT_ALL_MEDICAL_RECORD_RESPONSES,
+)
 async def export_all_medical_records_pdf(
     current_user: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
@@ -105,7 +163,13 @@ async def export_all_medical_records_pdf(
 
 
 @router.post(
-    "/patients/{patient_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED
+    "/patients/{patient_id}/export/pdf",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a PDF export for one patient history",
+    description=MEDICAL_RECORD_EXPORT_PATIENT_DESCRIPTION,
+    response_description="Generic export job metadata for the queued PDF export.",
+    responses=EXPORT_PATIENT_HISTORY_RESPONSES,
 )
 async def export_patient_medical_record_history_pdf(
     patient_id: int,
@@ -122,7 +186,15 @@ async def export_patient_medical_record_history_pdf(
     )
 
 
-@router.post("/{record_id}/export/pdf", response_model=ExportJobResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{record_id}/export/pdf",
+    response_model=ExportJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue a PDF export for one medical record",
+    description=MEDICAL_RECORD_EXPORT_SINGLE_DESCRIPTION,
+    response_description="Generic export job metadata for the queued PDF export.",
+    responses=EXPORT_SINGLE_RESPONSES,
+)
 async def export_single_medical_record_pdf(
     record_id: int,
     current_user: User = Depends(require_tenant_membership),
@@ -138,7 +210,14 @@ async def export_single_medical_record_pdf(
     )
 
 
-@router.get("/{record_id}", response_model=MedicalRecordResponse)
+@router.get(
+    "/{record_id}",
+    response_model=MedicalRecordResponse,
+    summary="Get a medical record",
+    description=MEDICAL_RECORD_DETAIL_DESCRIPTION,
+    response_description="One consultation note from the current tenant.",
+    responses=DETAIL_MEDICAL_RECORD_RESPONSES,
+)
 async def get_medical_record(
     record_id: int,
     _: User = Depends(require_tenant_membership),
@@ -149,7 +228,14 @@ async def get_medical_record(
     return MedicalRecordResponse.model_validate(record)
 
 
-@router.put("/{record_id}", response_model=MedicalRecordResponse)
+@router.put(
+    "/{record_id}",
+    response_model=MedicalRecordResponse,
+    summary="Update a medical record",
+    description=MEDICAL_RECORD_UPDATE_DESCRIPTION,
+    response_description="The updated consultation note for the current tenant.",
+    responses=UPDATE_MEDICAL_RECORD_RESPONSES,
+)
 async def update_medical_record(
     record_id: int,
     data: MedicalRecordUpdateRequest,

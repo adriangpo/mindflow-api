@@ -107,6 +107,7 @@ Automatic consultation revenue is not stored in this table. It is computed from 
 - `FinancialEntryResponse`: full manual entry state including reversal metadata
 - `FinancialEntryListResponse`: paginated list envelope
 - `FinanceReportResponse`: aggregated totals and counts for the selected report window
+- `ExportJobResponse`: async export job envelope returned by the PDF export route
 
 ## Endpoints
 
@@ -120,6 +121,18 @@ Behavior:
 
 - stores `created_by_user_id` from current authenticated user
 - entries are append-only in v1
+- returns the created entry immediately after commit and refresh
+- the response includes `is_reversed=false` and null reversal metadata on creation
+
+Success:
+
+- `200` `FinancialEntryResponse`
+
+Errors:
+
+- `401` invalid or missing bearer token
+- `403` authenticated user is not assigned to the tenant
+- `422` request validation errors
 
 ### `GET /api/finance/entries`
 
@@ -141,10 +154,38 @@ Behavior:
 
 - when `include_reversed=false`, reversed entries are excluded
 - when both dates are provided, `end_date` must be greater than or equal to `start_date`
+- when only one date is provided, the service applies that side of the range without requiring the other bound
+- pagination can be disabled by sending both `page=None` and `page_size=None`
+
+Success:
+
+- `200` `FinancialEntryListResponse`
+
+Errors:
+
+- `400` invalid date window
+- `401` invalid or missing bearer token
+- `403` authenticated user is not assigned to the tenant
+- `422` query validation errors
 
 ### `GET /api/finance/entries/{entry_id}`
 
 Returns one manual financial entry by id.
+
+Behavior:
+
+- lookup is tenant-scoped
+- `404` is returned when the id does not exist in the current tenant
+
+Success:
+
+- `200` `FinancialEntryResponse`
+
+Errors:
+
+- `401` invalid or missing bearer token
+- `403` authenticated user is not assigned to the tenant
+- `404` entry not found in the current tenant
 
 ### `POST /api/finance/entries/{entry_id}/reverse`
 
@@ -155,6 +196,19 @@ Behavior:
 - sets `is_reversed=true`
 - stores `reversed_at`, `reversed_by_user_id`, and `reversal_reason`
 - rejects already reversed rows with `409`
+- the request does not delete the row; it only marks the original entry as reversed
+
+Success:
+
+- `200` `FinancialEntryResponse`
+
+Errors:
+
+- `401` invalid or missing bearer token
+- `403` authenticated user is not assigned to the tenant
+- `404` entry not found in the current tenant
+- `409` entry was already reversed
+- `422` request validation errors
 
 ### `GET /api/finance/report`
 
@@ -172,6 +226,19 @@ Report semantics:
 - manual entries use `financial_entries.occurred_on`
 - `custom` is inclusive on both dates
 - `total` ignores date filters and returns `range_start=null`, `range_end=null`
+- `day`, `week`, `month`, and `year` fall back to the current UTC date when `reference_date` is omitted
+- reversed manual entries are excluded from the totals
+
+Success:
+
+- `200` `FinanceReportResponse`
+
+Errors:
+
+- `400` custom view missing dates or invalid date order
+- `401` invalid or missing bearer token
+- `403` authenticated user is not assigned to the tenant
+- `422` query validation errors
 
 Response totals:
 
@@ -200,6 +267,8 @@ Behavior:
 - validates the requested report window by calling the same report builder used by `GET /api/finance/report`
 - creates an async export job with kind `finance_report_pdf`
 - final PDF includes summary totals, non-reversed manual entries, and paid non-deleted appointments for the resolved range
+- the response is the generic export job envelope, not a finance-specific file download response
+- the generated file is retrieved later from the shared export endpoints, not from the finance route itself
 
 Success:
 
@@ -231,6 +300,7 @@ Reporting rules:
 - appointment status does not affect revenue once payment status is `paid`
 - automatic revenue amount uses the persisted appointment `charge_amount` snapshot
 - exported manual-entry detail excludes reversed rows
+- list and report queries operate strictly on the current tenant and fail fast if the tenant context is missing
 
 ## Error Handling
 

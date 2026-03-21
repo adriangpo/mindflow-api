@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/patient` manages tenant-scoped patient records, including full registration, quick registration, registration completion, profile updates, active/inactive lifecycle with retention metadata, and complete patient dossier export initiation.
+`src/features/patient` manages tenant-scoped patient records, including full registration, quick registration, registration completion, profile updates, active/inactive lifecycle with retention metadata, and complete patient dossier export initiation. The route-level Swagger metadata mirrors the same access, validation, and conflict rules described below.
 
 ## Scope
 

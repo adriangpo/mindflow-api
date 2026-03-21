@@ -12,6 +12,16 @@ from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import TenantNotFound
+from .openapi import (
+    TENANT_CONFLICT_RESPONSE,
+    TENANT_FORBIDDEN_RESPONSE,
+    TENANT_LIST_RESPONSE_EXAMPLE,
+    TENANT_MESSAGE_RESPONSE_EXAMPLE,
+    TENANT_NOT_FOUND_RESPONSE,
+    TENANT_RESPONSE_EXAMPLE,
+    TENANT_UNAUTHORIZED_RESPONSE,
+    TenantMessageResponse,
+)
 from .schemas import TenantCreateRequest, TenantListResponse, TenantResponse, TenantUpdateRequest
 from .service import TenantService
 
@@ -23,25 +33,87 @@ router = APIRouter(
 )
 
 
-@router.post("", response_model=TenantResponse)
+@router.post(
+    "",
+    response_model=TenantResponse,
+    response_description="The tenant that was created.",
+    summary="Create a tenant",
+    description=(
+        "Create a new global tenant record. The `name` must be unique. When `slug` is omitted, the service derives "
+        "one from the name and appends a numeric suffix when needed to avoid collisions. When `slug` is provided, "
+        "it is normalized to lowercase, must match the hyphenated slug pattern, and must be unique. Extra payload "
+        "fields are ignored by the request model, so flags such as `is_active` have no write effect."
+    ),
+    responses={
+        200: {
+            "description": "Tenant created successfully.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "tenant": {
+                            "summary": "Created tenant",
+                            "value": TENANT_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        },
+        400: TENANT_CONFLICT_RESPONSE,
+        401: TENANT_UNAUTHORIZED_RESPONSE,
+        403: TENANT_FORBIDDEN_RESPONSE,
+    },
+)
 async def create_tenant(
     data: TenantCreateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Create a tenant (admin only)."""
+    """Create a tenant.
+
+    Admin-only endpoint that creates a new global workspace boundary. Name uniqueness is enforced before insert.
+    """
     tenant = await TenantService.create_tenant(session, data)
     await session.commit()
     logger.info("Tenant created by admin %s: %s", current_user.username, tenant.slug)
     return TenantResponse.model_validate(tenant)
 
 
-@router.get("", response_model=TenantListResponse)
+@router.get(
+    "",
+    response_model=TenantListResponse,
+    response_description="Paginated tenant records.",
+    summary="List tenants",
+    description=(
+        "Return all tenant records, including active and inactive entries. Pagination uses the shared "
+        "`PaginationParams` contract. When pagination is disabled by setting both `page` and `page_size` to `null`, "
+        "the service returns the full list."
+    ),
+    responses={
+        200: {
+            "description": "Tenant list returned successfully.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "tenant_list": {
+                            "summary": "Paginated tenant list",
+                            "value": TENANT_LIST_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        },
+        401: TENANT_UNAUTHORIZED_RESPONSE,
+        403: TENANT_FORBIDDEN_RESPONSE,
+    },
+)
 async def list_tenants(
     pagination: PaginationParams = Depends(),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """List tenants (admin only)."""
+    """List tenants.
+
+    The query returns both active and inactive tenants. There is no `is_active` filter in this endpoint.
+    """
     tenants, total = await TenantService.get_tenants(session, pagination)
     return TenantListResponse(
         tenants=[TenantResponse.model_validate(tenant) for tenant in tenants],
@@ -51,23 +123,85 @@ async def list_tenants(
     )
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse)
+@router.get(
+    "/{tenant_id}",
+    response_model=TenantResponse,
+    response_description="The tenant identified by `tenant_id`.",
+    summary="Get a tenant",
+    description=(
+        "Fetch one tenant by UUID. The lookup includes both active and inactive tenants. A missing UUID returns "
+        "`404 Tenant not found`."
+    ),
+    responses={
+        200: {
+            "description": "Tenant returned successfully.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "tenant": {
+                            "summary": "Tenant record",
+                            "value": TENANT_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        },
+        401: TENANT_UNAUTHORIZED_RESPONSE,
+        403: TENANT_FORBIDDEN_RESPONSE,
+        404: TENANT_NOT_FOUND_RESPONSE,
+    },
+)
 async def get_tenant(tenant_id: UUID, session: AsyncSession = Depends(get_db_session)):
-    """Get tenant by id (admin only)."""
+    """Get tenant by id.
+
+    This is a global lookup and does not require tenant membership, only the admin role.
+    """
     tenant = await TenantService.get_tenant(session, tenant_id)
     if not tenant:
         raise TenantNotFound()
     return TenantResponse.model_validate(tenant)
 
 
-@router.put("/{tenant_id}", response_model=TenantResponse)
+@router.put(
+    "/{tenant_id}",
+    response_model=TenantResponse,
+    response_description="The updated tenant.",
+    summary="Update a tenant",
+    description=(
+        "Update tenant `name` and/or `slug`. When `name` changes and no `slug` is sent, the service regenerates the "
+        "slug from the new name. When `slug` is sent, it is normalized, validated, and checked for uniqueness before "
+        "being saved. The `is_active` flag is not writable through this endpoint."
+    ),
+    responses={
+        200: {
+            "description": "Tenant updated successfully.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "tenant": {
+                            "summary": "Updated tenant",
+                            "value": TENANT_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        },
+        400: TENANT_CONFLICT_RESPONSE,
+        401: TENANT_UNAUTHORIZED_RESPONSE,
+        403: TENANT_FORBIDDEN_RESPONSE,
+        404: TENANT_NOT_FOUND_RESPONSE,
+    },
+)
 async def update_tenant(
     tenant_id: UUID,
     data: TenantUpdateRequest,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Update tenant (admin only)."""
+    """Update a tenant.
+
+    This endpoint is idempotent for unchanged fields and keeps the tenant row in place.
+    """
     tenant = await TenantService.get_tenant(session, tenant_id)
     if not tenant:
         raise TenantNotFound()
@@ -78,13 +212,43 @@ async def update_tenant(
     return TenantResponse.model_validate(updated)
 
 
-@router.delete("/{tenant_id}")
+@router.delete(
+    "/{tenant_id}",
+    response_model=TenantMessageResponse,
+    response_description="A confirmation message.",
+    summary="Deactivate a tenant",
+    description=(
+        "Soft-deactivate a tenant by setting `is_active=false`. The row is not deleted and repeated calls keep the "
+        "same final inactive state."
+    ),
+    responses={
+        200: {
+            "description": "Tenant deactivated successfully.",
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "message": {
+                            "summary": "Deactivation confirmation",
+                            "value": TENANT_MESSAGE_RESPONSE_EXAMPLE,
+                        }
+                    }
+                }
+            },
+        },
+        401: TENANT_UNAUTHORIZED_RESPONSE,
+        403: TENANT_FORBIDDEN_RESPONSE,
+        404: TENANT_NOT_FOUND_RESPONSE,
+    },
+)
 async def delete_tenant(
     tenant_id: UUID,
     current_user: User = Depends(get_current_active_user),
     session: AsyncSession = Depends(get_db_session),
 ):
-    """Deactivate tenant (admin only)."""
+    """Deactivate tenant.
+
+    This is a soft delete. The tenant record remains available for reads and audits.
+    """
     tenant = await TenantService.get_tenant(session, tenant_id)
     if not tenant:
         raise TenantNotFound()
@@ -92,4 +256,4 @@ async def delete_tenant(
     await TenantService.delete_tenant(tenant)
     await session.commit()
     logger.info("Tenant deactivated by admin %s: %s", current_user.username, tenant_id)
-    return {"message": "Tenant deactivated successfully"}
+    return TenantMessageResponse(message="Tenant deactivated successfully")

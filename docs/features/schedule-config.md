@@ -116,7 +116,7 @@ Base path is `/api/schedule-configurations`.
 
 ### `POST /api/schedule-configurations`
 
-Creates tenant configuration.
+Creates the tenant-wide schedule configuration.
 
 Request body: `ScheduleConfigurationCreateRequest`
 
@@ -127,6 +127,8 @@ Behavior:
   - service pre-check (`get_configuration_by_tenant`)
   - DB unique constraint fallback handling
 - on commit `IntegrityError`, router maps tenant unique-constraint collisions to `409`
+- the request body must satisfy the create schema, including `start_time < end_time`
+- the response is the persisted configuration row, including tenant-wide working days, hours, duration, and timestamps
 
 Success:
 
@@ -142,7 +144,7 @@ Errors:
 
 ### `GET /api/schedule-configurations`
 
-Lists configurations for current tenant.
+Lists configurations visible to the current tenant.
 
 Query params (`PaginationParams`):
 
@@ -153,6 +155,7 @@ Behavior:
 
 - returns only rows where `tenant_id == session.info["tenant_id"]`
 - response always includes `page` and `page_size` (defaults to 1/50 if missing)
+- if no configuration exists yet, `configurations` is an empty list and `total` is `0`
 
 Success:
 
@@ -167,7 +170,7 @@ Errors:
 
 ### `GET /api/schedule-configurations/{configuration_id}`
 
-Gets one configuration by id within current tenant.
+Gets one configuration by id within the current tenant scope.
 
 Success:
 
@@ -183,7 +186,7 @@ Errors:
 
 ### `PUT /api/schedule-configurations/{configuration_id}`
 
-Updates one configuration.
+Updates one configuration in the current tenant.
 
 Request body: `ScheduleConfigurationUpdateRequest`
 
@@ -193,6 +196,8 @@ Behavior:
 - validates merged final state (current + update payload)
 - applies only provided fields
 - flushes and commits
+- partial updates can still fail `422` if the merged result makes `start_time >= end_time`
+- the response is the persisted configuration after commit and refresh
 
 Success:
 
@@ -209,12 +214,14 @@ Errors:
 
 ### `DELETE /api/schedule-configurations/{configuration_id}`
 
-Deletes one configuration in current tenant.
+Deletes one configuration in the current tenant.
 
 Behavior:
 
 - hard delete via `session.delete(configuration)`
 - returns success message
+- deletion is tenant-scoped; a row from another tenant behaves like `404`
+- the response body is `{"message": "Schedule configuration deleted successfully"}`
 
 Success:
 

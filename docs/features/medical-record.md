@@ -119,6 +119,10 @@ Behavior:
 - validates patient exists in current tenant
 - if `appointment_id` is provided, validates appointment exists in current tenant and belongs to the same patient
 - sets `recorded_by_user_id` from current authenticated user
+- `recorded_at` defaults to the current UTC timestamp when omitted
+- `attachments` are stored as URL strings and duplicate URLs are rejected by the request schema
+- `tenant_owner` is required by the router, and the request still requires `X-Tenant-ID` plus a bearer token
+- if the appointment belongs to a different patient, the request fails with `409 Conflict`
 
 ### `GET /api/medical-records`
 
@@ -134,6 +138,12 @@ Query params:
 
 Ordering: `recorded_at DESC, id DESC`.
 
+Behavior:
+
+- search is applied across `title`, `content`, `clinical_assessment`, and `treatment_plan`
+- `page=None` and `page_size=None` disable pagination through the shared pagination contract
+- empty result sets are returned as a normal `200` response with `total=0`
+
 ### `GET /api/medical-records/patients/{patient_id}/history`
 
 Returns paginated history of records for one patient.
@@ -141,10 +151,16 @@ Returns paginated history of records for one patient.
 Behavior:
 
 - validates patient exists in tenant before listing
+- uses the same ordering and pagination rules as the main list endpoint
 
 ### `GET /api/medical-records/{record_id}`
 
 Returns one medical record by id.
+
+Behavior:
+
+- returns `404` when the id does not exist in the current tenant
+- the same numeric id in another tenant is not visible here
 
 ### `PUT /api/medical-records/{record_id}`
 
@@ -154,6 +170,10 @@ Behavior:
 
 - validates patient and appointment consistency on update
 - if patient changes while appointment remains, appointment must still belong to the new patient
+- `attachments: null` clears the attachment list
+- `patient_id` and `content` cannot be sent as null when they are included in the payload
+- `recorded_at`, when sent, must be timezone-aware
+- any attempt to reuse an appointment with a different patient returns `409 Conflict`
 
 ### `POST /api/medical-records/{record_id}/export/pdf`
 
@@ -221,6 +241,7 @@ Errors:
 - appointment existence checks in tenant scope (`is_deleted=false`)
 - patient/appointment consistency rules
 - listing filters (patient, appointment, search, date range)
+- pagination follows the shared `PaginationParams` contract, with `page=None` and `page_size=None` disabling paging
 - export pre-validation for single, patient-history, and all-record queue requests
 - in-memory PDF generation without external libraries (single and multi-page)
 - export persistence through a segregated storage adapter (`MedicalRecordStorage` -> shared storage backend)

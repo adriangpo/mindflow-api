@@ -133,7 +133,13 @@ Base path is `/api/users`.
 
 ### `GET /api/users/me`
 
-Returns current authenticated user profile.
+Returns the authenticated user's profile.
+
+Behavior:
+
+- requires a valid bearer token
+- rejects inactive or locked accounts before the handler runs
+- returns the full persisted `UserResponse`, including roles, permissions, tenant assignments, and `last_login_at`
 
 Success:
 
@@ -155,6 +161,7 @@ Behavior:
 - only `full_name` and `email` are updated
 - fields set to `null` are ignored
 - `updated_at` is always refreshed
+- duplicate email values raise `400`
 
 Success:
 
@@ -179,6 +186,7 @@ Behavior:
 - replaces `hashed_password` with new Argon2 hash
 - updates `updated_at`
 - changing to the same password is allowed (if validation passes)
+- returns a simple message payload on success
 
 Success:
 
@@ -208,6 +216,7 @@ Business defaults applied on creation:
 - `is_logged_in = false`
 - `permissions = []`
 - `tenant_ids = []`
+- role and email/username uniqueness are enforced before commit
 
 Success:
 
@@ -234,6 +243,7 @@ Behavior:
 
 - executes `select(User)` without explicit ordering
 - if pagination is active, applies `offset` + `limit`
+- if both `page` and `page_size` are disabled, the route returns the full list and normalizes the response metadata to `page=1`, `page_size=50`
 
 Success:
 
@@ -248,6 +258,11 @@ Errors:
 ### `GET /api/users/{user_id}`
 
 Returns one user.
+
+Behavior:
+
+- `user_id` must be an integer path value
+- missing users return `404`
 
 Success:
 
@@ -270,6 +285,7 @@ Behavior:
 
 - only `full_name` and `email` are mutable
 - duplicate email check only runs when email value actually changes
+- `status`, `roles`, `permissions`, and `tenant_ids` are not touched by this route
 
 Success:
 
@@ -289,6 +305,12 @@ Replaces user roles with provided list.
 
 Request body: `AssignRolesRequest`
 
+Behavior:
+
+- the provided list replaces the full existing role set
+- roles are validated against the `UserRole` enum
+- the route does not merge with existing roles
+
 Success:
 
 - `200` `UserResponse`
@@ -305,6 +327,12 @@ Errors:
 Replaces user permissions with provided list.
 
 Request body: `AssignPermissionsRequest`
+
+Behavior:
+
+- the provided list replaces the full existing permission list
+- at least one permission is required by the schema
+- the route does not merge with existing permissions
 
 Success:
 
@@ -327,6 +355,7 @@ Behavior:
 
 - complete replacement semantics (`tenant_ids` is overwritten)
 - empty list is allowed (clears tenant assignments)
+- each tenant identifier must be a valid UUID
 
 Success:
 
@@ -351,6 +380,7 @@ Behavior:
 - sets `is_logged_in = false`
 - revokes all non-revoked refresh tokens for that user
 - idempotent for existing users: repeated calls still return `200`
+- returns a simple confirmation message instead of a resource body
 
 Success:
 
