@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import UUID, uuid7
 
 from fastapi import HTTPException, status
@@ -13,8 +14,9 @@ from src.database.client import get_session, set_tenant_context
 from src.features.finance.service import FinanceService
 from src.features.medical_record.service import MedicalRecordService
 from src.features.patient.service import PatientService
+from src.shared.qstash import build_public_url, get_qstash_client
 from src.shared.redis import dumps_json, ensure_stream_group, get_redis, loads_json
-from src.shared.storage import StoredFile, get_local_storage_backend
+from src.shared.storage import StorageDownload, StoredFile, get_storage_backend
 
 from .schemas import ExportJobKind, ExportJobResponse, ExportJobSnapshot, ExportJobStatus
 
@@ -82,7 +84,27 @@ class ExportService:
     @staticmethod
     async def ensure_runtime() -> None:
         """Ensure Redis consumer-group prerequisites exist."""
-        await ensure_stream_group(EXPORT_JOBS_STREAM, EXPORT_JOBS_GROUP)
+        if settings.job_dispatch_mode == "redis_worker":
+            await ensure_stream_group(EXPORT_JOBS_STREAM, EXPORT_JOBS_GROUP)
+
+    @staticmethod
+    def _export_process_callback_path() -> str:
+        return f"{settings.api_prefix}/internal/qstash/exports/process"
+
+    @staticmethod
+    async def _dispatch_job(snapshot: ExportJobSnapshot) -> None:
+        if settings.job_dispatch_mode == "redis_worker":
+            redis = get_redis()
+            await redis.xadd(EXPORT_JOBS_STREAM, {"job_id": snapshot.id})
+            return
+
+        await get_qstash_client().message.publish_json(
+            url=build_public_url(ExportService._export_process_callback_path()),
+            body={"job_id": snapshot.id},
+            method="POST",
+            headers={"Content-Type": "application/json"},
+            deduplication_id=f"export:{snapshot.id}",
+        )
 
     @staticmethod
     async def create_job(
@@ -112,13 +134,20 @@ class ExportService:
             payload=payload,
         )
 
-        redis = get_redis()
-        pipeline = redis.pipeline(transaction=False)
-        pipeline.set(ExportService._job_key(snapshot.id), dumps_json(snapshot.model_dump(mode="json")))
-        pipeline.xadd(EXPORT_JOBS_STREAM, {"job_id": snapshot.id})
-        await pipeline.execute()
-
         await ExportService.publish_snapshot(snapshot)
+        try:
+            await ExportService._dispatch_job(snapshot)
+        except Exception as exc:
+            logger.exception("Failed to dispatch export job %s", snapshot.id)
+            snapshot = await ExportService.update_snapshot(
+                snapshot.id,
+                status_value=ExportJobStatus.FAILED,
+                progress_current=3,
+                progress_message="Export scheduling failed",
+                error_detail=str(exc),
+            )
+            return ExportService._public_snapshot(snapshot)
+
         return ExportService._public_snapshot(snapshot)
 
     @staticmethod
@@ -139,8 +168,8 @@ class ExportService:
         return ExportService._public_snapshot(snapshot)
 
     @staticmethod
-    async def get_download_file(job_id: str, *, tenant_id: UUID, user_id: int) -> StoredFile:
-        """Resolve a completed export file for its creator."""
+    async def get_download_target(job_id: str, *, tenant_id: UUID, user_id: int) -> StorageDownload:
+        """Resolve a completed export download for its creator."""
         snapshot = await ExportService.get_snapshot(job_id)
         if snapshot.tenant_id != tenant_id or snapshot.created_by_user_id != user_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export job not found")
@@ -149,29 +178,35 @@ class ExportService:
         if snapshot.filename is None or snapshot.content_type is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Export file metadata is incomplete")
 
-        backend = get_local_storage_backend()
-        path = backend.root / snapshot.file_relative_path
-        if not path.exists():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export file not found")
-
-        return StoredFile(
-            path=path,
-            relative_path=path.relative_to(backend.root),
-            filename=snapshot.filename,
-            content_type=snapshot.content_type,
-        )
+        backend = get_storage_backend()
+        try:
+            return backend.resolve_download(
+                Path(snapshot.file_relative_path),
+                filename=snapshot.filename,
+                content_type=snapshot.content_type,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export file not found") from exc
 
     @staticmethod
     async def publish_snapshot(snapshot: ExportJobSnapshot) -> None:
         """Persist and publish a snapshot update."""
         redis = get_redis()
         public_snapshot = ExportService._public_snapshot(snapshot)
+        stream_key = ExportService._user_channel(snapshot.tenant_id, snapshot.created_by_user_id)
         pipeline = redis.pipeline(transaction=False)
-        pipeline.set(ExportService._job_key(snapshot.id), dumps_json(snapshot.model_dump(mode="json")))
-        pipeline.xadd(
-            ExportService._user_channel(snapshot.tenant_id, snapshot.created_by_user_id),
-            {"data": dumps_json(public_snapshot.model_dump(mode="json"))},
+        pipeline.set(
+            ExportService._job_key(snapshot.id),
+            dumps_json(snapshot.model_dump(mode="json")),
+            ex=settings.export_job_ttl_seconds,
         )
+        pipeline.xadd(
+            stream_key,
+            {"data": dumps_json(public_snapshot.model_dump(mode="json"))},
+            maxlen=settings.export_event_stream_maxlen,
+            approximate=True,
+        )
+        pipeline.expire(stream_key, settings.export_event_stream_ttl_seconds)
         await pipeline.execute()
 
     @staticmethod
@@ -241,6 +276,10 @@ class ExportService:
     @staticmethod
     async def process_job(job_id: str, *, session: AsyncSession | None = None) -> None:
         """Execute an export job and persist progress updates."""
+        snapshot = await ExportService.get_snapshot(job_id)
+        if snapshot.status in {ExportJobStatus.COMPLETED, ExportJobStatus.FAILED, ExportJobStatus.RUNNING}:
+            return
+
         await ExportService.update_snapshot(
             job_id,
             status_value=ExportJobStatus.RUNNING,

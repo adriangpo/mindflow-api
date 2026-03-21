@@ -1,11 +1,14 @@
 """Redis queue helpers for notification scheduling and delivery."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.config.settings import settings
 from src.shared.redis import stage_redis_operation
+
+from .qstash import stage_notification_qstash_cancel, stage_notification_qstash_enqueue
 
 NOTIFICATION_DELIVERY_GROUP = "notifications:workers"
 NOTIFICATION_SCHEDULE_KEY = "notifications:schedule"
@@ -29,6 +32,10 @@ def parse_schedule_member(member: str) -> tuple[UUID, int]:
 
 def stage_notification_delivery(session: AsyncSession, tenant_id: UUID, message_id: int) -> None:
     """Stage an immediate notification delivery enqueue."""
+    if settings.qstash_enabled:
+        stage_notification_qstash_enqueue(session, tenant_id, message_id, datetime.now(UTC))
+        return
+
     stage_redis_operation(
         session,
         {
@@ -49,6 +56,10 @@ def stage_notification_schedule(
     scheduled_for: datetime,
 ) -> None:
     """Stage a future notification reminder schedule entry."""
+    if settings.qstash_enabled:
+        stage_notification_qstash_enqueue(session, tenant_id, message_id, scheduled_for)
+        return
+
     stage_redis_operation(
         session,
         {
@@ -60,8 +71,18 @@ def stage_notification_schedule(
     )
 
 
-def stage_notification_schedule_removal(session: AsyncSession, tenant_id: UUID, message_ids: list[int]) -> None:
+def stage_notification_schedule_removal(
+    session: AsyncSession,
+    tenant_id: UUID,
+    message_ids: list[int],
+    *,
+    qstash_message_ids: list[str] | None = None,
+) -> None:
     """Stage removal of scheduled reminder entries from Redis."""
+    if settings.qstash_enabled:
+        stage_notification_qstash_cancel(session, qstash_message_ids or [])
+        return
+
     if not message_ids:
         return
     stage_redis_operation(

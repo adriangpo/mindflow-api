@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from enum import StrEnum
+from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
@@ -200,3 +201,16 @@ class NotificationDispatchResponse(BaseModel):
     processed_count: int
     sent_count: int
     failed_count: int
+
+
+class NotificationDeliverCallbackRequest(BaseModel):
+    """Signed QStash callback payload for one notification delivery."""
+
+    message_id: int
+    tenant_id: UUID
+
+
+class NotificationSyncCallbackRequest(BaseModel):
+    """Signed QStash callback payload for the daily reminder backfill."""
+
+    kind: str | None = None

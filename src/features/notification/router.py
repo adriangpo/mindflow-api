@@ -1,15 +1,20 @@
 """Notification router (API endpoints)."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.dependencies import get_tenant_db_session
+from src.config.settings import settings
+from src.database.dependencies import get_db_session, get_tenant_db_session
 from src.features.auth.dependencies import require_role, require_tenant_membership
 from src.features.user.models import User, UserRole
 from src.shared.pagination.pagination import PaginationParams
+from src.shared.qstash import verify_qstash_request
 from src.shared.redis import commit_with_staged_redis
 
+from .qstash import sync_pending_messages_with_qstash
+from .runtime import deliver_message_now
 from .schemas import (
+    NotificationDeliverCallbackRequest,
     NotificationDispatchRequest,
     NotificationDispatchResponse,
     NotificationEventType,
@@ -21,6 +26,7 @@ from .schemas import (
     NotificationRecipientType,
     NotificationSettingsResponse,
     NotificationSettingsUpdateRequest,
+    NotificationSyncCallbackRequest,
     NotificationUserProfileResponse,
     NotificationUserProfileUpsertRequest,
 )
@@ -30,6 +36,11 @@ router = APIRouter(
     prefix="/notifications",
     tags=["Notificações"],
     dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT))],
+)
+
+internal_router = APIRouter(
+    prefix="/internal/qstash/notifications",
+    tags=["Internal Notifications"],
 )
 
 
@@ -179,3 +190,28 @@ async def dispatch_due_notifications(
     result = await NotificationService.dispatch_due_messages(session, limit=data.limit)
     await session.commit()
     return NotificationDispatchResponse.model_validate(result)
+
+
+@internal_router.post("/deliver")
+async def deliver_notification_callback(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Deliver one pending notification through a signed QStash callback."""
+    raw_body = await verify_qstash_request(
+        request,
+        path=f"{settings.api_prefix}/internal/qstash/notifications/deliver",
+    )
+    payload = NotificationDeliverCallbackRequest.model_validate_json(raw_body)
+    return await deliver_message_now(payload.tenant_id, payload.message_id, session=session)
+
+
+@internal_router.post("/sync")
+async def sync_notification_schedule_callback(request: Request):
+    """Backfill QStash reminder schedules through a signed daily callback."""
+    raw_body = await verify_qstash_request(
+        request,
+        path=f"{settings.api_prefix}/internal/qstash/notifications/sync",
+    )
+    NotificationSyncCallbackRequest.model_validate_json(raw_body)
+    return await sync_pending_messages_with_qstash()

@@ -68,6 +68,10 @@ async def flush_staged_redis_operations(session: AsyncSession) -> None:
 
 
 async def commit_with_staged_redis(session: AsyncSession) -> None:
-    """Commit the session and then flush staged Redis operations."""
+    """Commit the session and then flush staged Redis and notification callback operations."""
     await session.commit()
     await flush_staged_redis_operations(session)
+    if session.info.get("staged_notification_qstash_operations"):
+        from src.features.notification.qstash import flush_staged_qstash_operations
+
+        await flush_staged_qstash_operations(session)

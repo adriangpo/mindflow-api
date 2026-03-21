@@ -4,18 +4,27 @@ from collections.abc import AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
+from src.database.dependencies import get_db_session
 from src.features.auth.dependencies import require_tenant_membership
 from src.features.user.models import User
+from src.shared.qstash import verify_qstash_request
 from src.shared.redis import get_redis
 
+from .schemas import ExportProcessCallbackRequest
 from .service import ExportService
 
 router = APIRouter(
     prefix="/exports",
     tags=["Exports"],
+)
+
+internal_router = APIRouter(
+    prefix="/internal/qstash/exports",
+    tags=["Internal Exports"],
 )
 
 
@@ -79,9 +88,29 @@ async def download_export_file(
 ):
     """Download a completed export file."""
     tenant_id = UUID(str(request.state.tenant_id))
-    stored_file = await ExportService.get_download_file(job_id, tenant_id=tenant_id, user_id=current_user.id)
-    return FileResponse(
-        path=stored_file.path,
-        media_type=stored_file.content_type,
-        filename=stored_file.filename,
+    download = await ExportService.get_download_target(job_id, tenant_id=tenant_id, user_id=current_user.id)
+    if download.path is not None:
+        return FileResponse(
+            path=download.path,
+            media_type=download.content_type,
+            filename=download.filename,
+        )
+    if download.url is None:
+        raise RuntimeError("Export download target is incomplete")
+    return RedirectResponse(download.url, status_code=307)
+
+
+@internal_router.post("/process")
+async def process_export_job_callback(
+    request: Request,
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Process one export job through a signed QStash callback."""
+    raw_body = await verify_qstash_request(
+        request,
+        path=f"{settings.api_prefix}/internal/qstash/exports/process",
     )
+    payload = ExportProcessCallbackRequest.model_validate_json(raw_body)
+    await ExportService.process_job(payload.job_id, session=session)
+    snapshot = await ExportService.get_snapshot(payload.job_id)
+    return {"job_id": snapshot.id, "status": snapshot.status}

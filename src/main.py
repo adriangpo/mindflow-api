@@ -17,10 +17,13 @@ from src.config.cors_config import CORSConfigurationError
 from src.config.settings import settings
 from src.database.client import close_db, init_db
 from src.features.auth.router import router as auth_router
+from src.features.export.router import internal_router as export_internal_router
 from src.features.export.router import router as export_router
 from src.features.export.runtime import run_export_worker_loop
 from src.features.finance.router import router as finance_router
 from src.features.medical_record.router import router as medical_record_router
+from src.features.notification.qstash import ensure_notification_sync_schedule
+from src.features.notification.router import internal_router as notification_internal_router
 from src.features.notification.router import router as notification_router
 from src.features.notification.runtime import run_notification_runtime
 from src.features.patient.router import router as patient_router
@@ -30,7 +33,9 @@ from src.features.tenant.router import router as tenant_router
 from src.features.user.router import router as user_router
 from src.shared.audit.audit_middleware import AuditContextMiddleware
 from src.shared.middlewares.docs_middleware import admin_docs_middleware
+from src.shared.qstash import get_qstash_client, get_qstash_receiver
 from src.shared.redis import close_redis, init_redis
+from src.shared.storage import get_storage_backend
 from src.shared.tenancy.dependencies import require_tenant
 from src.shared.tenancy.tenant_middleware import TenantMiddleware
 
@@ -57,9 +62,15 @@ async def lifespan(_: FastAPI):
     await init_redis()
     export_worker_task: Task[None] | None = None
     notification_runtime_task: Task[None] | None = None
-    if settings.export_worker_enabled and not settings.testing:
+    if settings.storage_backend == "s3":
+        get_storage_backend()
+    if settings.qstash_enabled and not settings.testing:
+        get_qstash_client()
+        get_qstash_receiver()
+        await ensure_notification_sync_schedule()
+    if not settings.qstash_enabled and settings.export_worker_enabled and not settings.testing:
         export_worker_task = create_task(run_export_worker_loop())
-    if settings.notification_background_dispatch_enabled and not settings.testing:
+    if not settings.qstash_enabled and settings.notification_background_dispatch_enabled and not settings.testing:
         notification_runtime_task = create_task(run_notification_runtime())
     yield
     if export_worker_task is not None:
@@ -197,6 +208,8 @@ public_routers: list[APIRouter] = [
     auth_router,
     user_router,
     tenant_router,
+    export_internal_router,
+    notification_internal_router,
 ]
 
 # Tenant-protected routers - require X-Tenant-ID header

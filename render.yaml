@@ -1,0 +1,65 @@
+services:
+  - type: web
+    name: mindflow-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: JOB_DISPATCH_MODE
+        value: qstash
+      - key: STORAGE_BACKEND
+        value: s3
+      - key: API_PREFIX
+        value: /api
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+      - key: POSTGRES_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CORS_ALLOW_ORIGINS
+        sync: false
+      - key: NOTIFICATION_PROVIDER
+        value: twilio
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM_NUMBER
+        sync: false
+      - key: NOTIFICATION_DEFAULT_COUNTRY_CODE
+        value: "+55"
+      - key: QSTASH_URL
+        value: https://qstash.upstash.io
+      - key: QSTASH_TOKEN
+        sync: false
+      - key: QSTASH_CURRENT_SIGNING_KEY
+        sync: false
+      - key: QSTASH_NEXT_SIGNING_KEY
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_BUCKET_NAME
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: auto
+      - key: EXPORT_JOB_TTL_SECONDS
+        value: "86400"
+      - key: EXPORT_EVENT_STREAM_TTL_SECONDS
+        value: "3600"
+      - key: EXPORT_EVENT_STREAM_MAXLEN
+        value: "200"

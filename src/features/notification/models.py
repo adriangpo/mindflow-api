@@ -183,3 +183,4 @@ class NotificationMessage(Base, TenantMixin, TimestampMixin):
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     failure_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     provider_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    qstash_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)

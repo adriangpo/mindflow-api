@@ -43,6 +43,12 @@ class ExportJobResponse(BaseModel):
     updated_at: datetime
 
 
+class ExportProcessCallbackRequest(BaseModel):
+    """Signed QStash callback payload for export processing."""
+
+    job_id: str
+
+
 class FinanceReportExportRequest(BaseModel):
     """Finance report export request payload."""
 

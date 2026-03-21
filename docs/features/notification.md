@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, manual dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events. Runtime scheduling and delivery coordination are Redis-backed, while `notification_messages` remains the persisted history and final delivery-state source.
+`src/features/notification` manages tenant-scoped notification settings, patient and user delivery configuration, notification message history/outbox, manual dispatch, and schedule-driven appointment notifications for confirmation, update, cancellation, and reminder events. Runtime coordination is dual-mode: local and test environments can use Redis-backed resident workers, while production can use one signed QStash callback per pending message plus one recurring daily reminder-backfill callback.
 
 ## Scope
 
@@ -16,6 +16,7 @@ Documented feature files:
 - `src/features/notification/delivery.py`
 - `src/features/notification/runtime.py`
 - `src/features/notification/queue.py`
+- `src/features/notification/qstash.py`
 
 Direct dependencies used by this feature:
 
@@ -29,7 +30,8 @@ Direct dependencies used by this feature:
 - `src/features/tenant/models.py` (`Tenant` iteration for background dispatch)
 - `src/shared/pagination/pagination.py` (`PaginationParams`)
 - `src/shared/redis/client.py` (`commit_with_staged_redis`, stream/ZSET helpers)
-- `src/config/settings.py` (background dispatch and provider settings)
+- `src/shared/qstash/client.py` (signed callback publishing and verification)
+- `src/config/settings.py` (dispatch mode, provider, and callback settings)
 
 ## Request Flow
 
@@ -41,7 +43,7 @@ sequenceDiagram
     participant TenantDB as get_tenant_db_session
     participant Service as NotificationService
     participant DB as settings + profiles + messages
-    participant Redis as schedule ZSET + delivery streams
+    participant Dispatcher as Redis runtime or QStash
     participant Backend as delivery backend
 
     Client->>Router: get/update settings or profiles, list messages, dispatch due
@@ -51,9 +53,9 @@ sequenceDiagram
     TenantDB-->>Router: session.info.tenant_id
     Router->>Service: business operation
     Service->>DB: read/write tenant-scoped records
-    Service->>Redis: stage schedule or delivery operations
-    Router->>Redis: flush staged operations after commit
-    Redis->>Backend: runtime delivers due messages
+    Service->>Dispatcher: stage Redis or QStash operations
+    Router->>Dispatcher: flush staged operations after commit
+    Dispatcher->>Backend: runtime or signed callback delivers due messages
     Backend-->>DB: mark sent or failed
     Service-->>Router: DTO/result
     Router-->>Client: response
@@ -126,6 +128,7 @@ erDiagram
         int attempt_count
         string failure_reason
         string provider_message_id
+        string qstash_message_id
         datetime created_at
         datetime updated_at
     }
@@ -189,9 +192,15 @@ Delivery backend configuration:
 
 Runtime Redis keys:
 
-- `notifications:schedule`: sorted set for future reminder message ids
-- `notifications:deliveries:{tenant_id}`: per-tenant delivery stream
-- `notifications:workers`: consumer group name for delivery workers
+- `notifications:schedule`: sorted set for future reminder message ids in `redis_worker` mode
+- `notifications:deliveries:{tenant_id}`: per-tenant delivery stream in `redis_worker` mode
+- `notifications:workers`: consumer group name for delivery workers in `redis_worker` mode
+
+QStash configuration and behavior:
+
+- `JOB_DISPATCH_MODE=qstash` disables resident notification loops
+- `QSTASH_URL`, `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, and `QSTASH_NEXT_SIGNING_KEY` configure publish and callback verification
+- `notification_messages.qstash_message_id` stores the scheduled callback id so reminders can be canceled or rescheduled safely
 
 ## Access Rules
 
@@ -229,7 +238,7 @@ Behavior:
 
 - upserts the single tenant settings row
 - rebuilds reminder outbox entries for future appointments in the tenant
-- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
+- stages Redis or QStash mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -266,7 +275,7 @@ Behavior:
 
 - upserts the preference row
 - rebuilds reminder outbox entries for that patient's future appointments
-- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
+- stages Redis or QStash mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -305,7 +314,7 @@ Behavior:
 
 - upserts the profile row
 - rebuilds reminder outbox entries for future appointments in the tenant
-- stages Redis schedule/delivery mutations and flushes them only after a successful DB commit
+- stages Redis or QStash mutations and flushes them only after a successful DB commit
 
 Success:
 
@@ -365,6 +374,39 @@ Errors:
 - `400`/`401`/`403` access, tenant, or auth failures
 - `422` request validation
 
+### `POST /api/internal/qstash/notifications/deliver`
+
+Internal-only endpoint used in `qstash` mode.
+
+Behavior:
+
+- requires a valid `Upstash-Signature` header over the raw request body
+- accepts `{ "message_id": <id>, "tenant_id": "<uuid>" }`
+- delivers one pending message idempotently
+
+Success:
+
+- `200` with `processed_count`, `sent_count`, and `failed_count`
+
+Errors:
+
+- `401` missing or invalid QStash signature
+- `404` when `JOB_DISPATCH_MODE` is not `qstash`
+
+### `POST /api/internal/qstash/notifications/sync`
+
+Internal-only endpoint used in `qstash` mode.
+
+Behavior:
+
+- requires a valid `Upstash-Signature` header
+- backfills QStash schedules only for pending messages whose `scheduled_for` is within the next 7 days
+- is targeted by one recurring daily QStash schedule
+
+Success:
+
+- `200` with the number of tenants scanned and messages scheduled
+
 ## Service Logic
 
 ### `upsert_settings(session, data)`
@@ -372,55 +414,61 @@ Errors:
 - creates or updates the tenant settings row
 - applies defaults when the row does not exist yet
 - resynchronizes reminder messages for all future appointments in the tenant
-- stages Redis schedule and delivery mutations in `session.info`
-- router flushes staged Redis operations only after commit succeeds
+- stages Redis or QStash schedule and delivery mutations in `session.info`
+- router flushes staged operations only after commit succeeds
 
 ### `upsert_patient_preference(session, patient_id, data)`
 
 - validates patient existence in tenant scope
 - upserts the patient override row
 - rebuilds future reminders for that patient's appointments
-- stages Redis schedule and delivery mutations in `session.info`
+- stages Redis or QStash schedule and delivery mutations in `session.info`
 
 ### `upsert_user_profile(session, user_id, data)`
 
 - validates the user exists and is assigned to the current tenant
 - upserts the user delivery profile
 - rebuilds future reminder messages in the tenant
-- stages Redis schedule and delivery mutations in `session.info`
+- stages Redis or QStash schedule and delivery mutations in `session.info`
 
 ### `handle_appointment_created(session, appointment)`
 
 - queues immediate confirmation messages for eligible patient and user recipients
 - queues reminder messages using tenant defaults and patient overrides
-- stages immediate deliveries into the tenant Redis stream
-- stages future reminders into the Redis schedule sorted set
+- stages immediate deliveries into the tenant Redis stream or QStash callback queue
+- stages future reminders into the Redis schedule sorted set or direct QStash schedule window
 
 ### `handle_appointment_updated(session, appointment)`
 
 - queues immediate update messages for eligible recipients
 - cancels and rebuilds pending reminder messages for that appointment
-- stages schedule removals plus replacement delivery/schedule operations in Redis
+- stages schedule removals plus replacement Redis or QStash operations
 
 ### `handle_appointment_canceled(session, appointment)`
 
 - cancels pending reminder messages for that appointment
 - queues immediate cancellation messages for eligible recipients
-- stages reminder removals and immediate cancellation deliveries in Redis
+- stages reminder removals and immediate cancellation deliveries through Redis or QStash
 
 ### `dispatch_due_messages(session, limit, appointment_id=None)`
 
-- promotes due scheduled reminders from Redis into the per-tenant delivery stream
-- processes a delivery batch for the current tenant
-- reuses the current test session when `TESTING=true`; otherwise runtime delivery uses independent worker sessions
-- stores `sent_at`, `failed_at`, `failure_reason`, `attempt_count`, and `provider_message_id`
+- in `redis_worker` mode, promotes due scheduled reminders from Redis into the per-tenant delivery stream and processes a delivery batch
+- in `qstash` mode, directly delivers due pending rows for the current tenant without relying on resident loops
+- stores `sent_at`, `failed_at`, `failure_reason`, `attempt_count`, `provider_message_id`, and clears `qstash_message_id` after delivery
 
 ### `run_notification_runtime()`
 
-- runs in app lifespan when `notification_background_dispatch_enabled=true` and `testing=false`
+- runs in app lifespan only when `JOB_DISPATCH_MODE=redis_worker`, `notification_background_dispatch_enabled=true`, and `testing=false`
 - runs both:
   - a scheduler loop that moves due reminder ids from `notifications:schedule` into tenant delivery streams
   - a delivery loop that iterates active tenants, reads `notifications:deliveries:{tenant_id}`, claims stale entries with `XAUTOCLAIM`, and sends them
+
+### `qstash.py`
+
+- publishes one signed callback per pending message that falls within the 7-day free-plan delay horizon
+- stores the resulting callback id on `notification_messages.qstash_message_id`
+- cancels previously scheduled callbacks when reminders are invalidated or rescheduled
+- maintains one recurring daily callback that backfills reminders now inside the 7-day horizon
 
 ## Error Handling
 
@@ -445,9 +493,10 @@ Backend-originated delivery failures:
 
 - schedule create, update, cancel, no-show, completed, and delete flows now also maintain notification outbox state.
 - future reminder rows are rebuilt whenever tenant settings, patient overrides, user profiles, or appointment timing change.
-- Redis coordinates runtime delivery only; `notification_messages` remains the list/history API and final status store.
-- immediate notifications are staged into per-tenant Redis streams after commit.
-- future reminders are staged into `notifications:schedule` after commit and later promoted by the scheduler loop.
+- Redis coordinates runtime delivery only in `redis_worker` mode; `notification_messages` remains the list/history API and final status store in every mode.
+- in `qstash` mode, each pending message may receive one external callback id in `notification_messages.qstash_message_id`.
+- immediate notifications are staged into per-tenant Redis streams or QStash callbacks after commit.
+- future reminders are staged into `notifications:schedule` after commit in `redis_worker` mode, or published directly when inside the 7-day QStash delay window.
 - delivery backend supports Twilio WhatsApp in `src/features/notification/delivery.py`.
 - `NOTIFICATION_PROVIDER=auto` falls back to the internal stub backend until the required Twilio env vars are present.
 - Twilio delivery formats outbound numbers as `whatsapp:+E164`; stored local digits are prefixed with `NOTIFICATION_DEFAULT_COUNTRY_CODE`.
@@ -460,3 +509,4 @@ Backend-originated delivery failures:
 - Use `/messages` to render notification history, troubleshoot failed deliveries, or inspect pending reminders.
 - `pending` means queued but not yet due or not yet dispatched; `canceled` means the reminder was invalidated by appointment/state changes.
 - `POST /api/notifications/dispatch` is tenant-scoped and only drains work for the current tenant.
+- frontend clients must not call the internal QStash endpoints directly.

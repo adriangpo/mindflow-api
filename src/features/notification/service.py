@@ -3,6 +3,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +27,7 @@ from .models import (
     NotificationUserProfile,
 )
 from .queue import stage_notification_delivery, stage_notification_schedule, stage_notification_schedule_removal
-from .runtime import dispatch_due_messages_now
+from .runtime import deliver_message_now, dispatch_due_messages_now
 from .schemas import (
     NotificationChannel,
     NotificationEventType,
@@ -597,6 +598,18 @@ class NotificationService:
     ) -> None:
         now = datetime.now(UTC)
         tenant_id = NotificationService._require_tenant_id(session)
+        select_stmt = select(NotificationMessage.id, NotificationMessage.qstash_message_id).where(
+            NotificationMessage.tenant_id == tenant_id,
+            NotificationMessage.appointment_id == appointment_id,
+            NotificationMessage.status == NotificationMessageStatus.PENDING.value,
+        )
+        if event_type is not None:
+            select_stmt = select_stmt.where(NotificationMessage.event_type == event_type.value)
+
+        pending_rows = list((await session.execute(select_stmt)).all())
+        if not pending_rows:
+            return
+
         stmt = update(NotificationMessage).where(
             NotificationMessage.tenant_id == tenant_id,
             NotificationMessage.appointment_id == appointment_id,
@@ -609,10 +622,22 @@ class NotificationService:
             status=NotificationMessageStatus.CANCELED.value,
             canceled_at=now,
             updated_at=now,
-        ).returning(NotificationMessage.id)
-        result = await session.execute(stmt)
-        canceled_ids = list(result.scalars().all())
-        stage_notification_schedule_removal(session, tenant_id, canceled_ids)
+            qstash_message_id=None,
+        )
+        await session.execute(stmt)
+
+        canceled_ids = [cast(int, row.id) for row in pending_rows]
+        canceled_qstash_ids = [
+            qstash_message_id
+            for _, qstash_message_id in pending_rows
+            if isinstance(qstash_message_id, str) and qstash_message_id
+        ]
+        stage_notification_schedule_removal(
+            session,
+            tenant_id,
+            canceled_ids,
+            qstash_message_ids=canceled_qstash_ids,
+        )
 
     @staticmethod
     async def _sync_appointment_reminders(
@@ -758,11 +783,58 @@ class NotificationService:
         limit: int,
         appointment_id: int | None = None,
     ) -> dict[str, int]:
-        """Dispatch due pending notifications using the Redis-backed runtime."""
-        _ = appointment_id
+        """Dispatch due pending notifications using the active runtime mode."""
+        if settings.qstash_enabled:
+            tenant_id = NotificationService._require_tenant_id(session)
+            stmt = (
+                select(NotificationMessage.id)
+                .where(
+                    NotificationMessage.tenant_id == tenant_id,
+                    NotificationMessage.status == NotificationMessageStatus.PENDING.value,
+                    NotificationMessage.scheduled_for <= datetime.now(UTC),
+                )
+                .order_by(NotificationMessage.scheduled_for.asc(), NotificationMessage.id.asc())
+                .limit(limit)
+            )
+            if appointment_id is not None:
+                stmt = stmt.where(NotificationMessage.appointment_id == appointment_id)
+
+            result = await session.execute(stmt)
+            message_ids = list(result.scalars().all())
+
+            totals = {"processed_count": 0, "sent_count": 0, "failed_count": 0}
+            for message_id in message_ids:
+                counts = await deliver_message_now(tenant_id, message_id, session=session)
+                for key, value in counts.items():
+                    totals[key] += value
+
+            return totals
+
         tenant_id = NotificationService._require_tenant_id(session)
         runtime_session = session if settings.testing else None
         return await dispatch_due_messages_now(tenant_id, limit=limit, session=runtime_session)
+
+    @staticmethod
+    async def list_pending_messages_missing_qstash(
+        session: AsyncSession,
+        *,
+        limit: int,
+    ) -> list[NotificationMessage]:
+        """List tenant-scoped pending messages that still need a QStash callback."""
+        tenant_id = NotificationService._require_tenant_id(session)
+        stmt = (
+            select(NotificationMessage)
+            .where(
+                NotificationMessage.tenant_id == tenant_id,
+                NotificationMessage.status == NotificationMessageStatus.PENDING.value,
+                NotificationMessage.qstash_message_id.is_(None),
+                NotificationMessage.scheduled_for <= datetime.now(UTC) + timedelta(days=7),
+            )
+            .order_by(NotificationMessage.scheduled_for.asc(), NotificationMessage.id.asc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
 
     @staticmethod
     async def _list_future_appointments(

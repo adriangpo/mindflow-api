@@ -11,18 +11,23 @@ Optimized test setup using transaction rollback strategy with multi-tenancy supp
 # ruff: noqa: E402
 
 import asyncio
+import base64
+import hashlib
 import os
 import subprocess
+import time
 from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID, uuid7
 
+import jwt
 import pytest
 import pytest_asyncio
 from dotenv import load_dotenv
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 # Load test environment variables before importing application settings/modules.
@@ -96,8 +101,91 @@ from src.features.tenant.models import Tenant
 from src.features.user.models import User, UserRole, UserStatus
 from src.main import app
 from src.shared.redis import close_redis, get_redis, init_redis
+from src.shared.storage.backends import S3StorageBackend
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+class FakeQStashMessageAPI:
+    """Fake QStash message API used by tests."""
+
+    def __init__(self) -> None:
+        self.published: list[dict[str, object]] = []
+        self.canceled: list[str] = []
+        self._sequence = 0
+
+    async def publish_json(self, **kwargs):
+        self._sequence += 1
+        message_id = f"qmsg-{self._sequence}"
+        self.published.append(
+            {
+                **kwargs,
+                "message_id": message_id,
+            }
+        )
+        return SimpleNamespace(message_id=message_id)
+
+    async def cancel(self, message_id: str) -> None:
+        self.canceled.append(message_id)
+
+
+class FakeQStashScheduleAPI:
+    """Fake QStash schedule API used by tests."""
+
+    def __init__(self) -> None:
+        self.schedules: dict[str, SimpleNamespace] = {}
+        self.created: list[dict[str, object]] = []
+        self.deleted: list[str] = []
+
+    async def get(self, schedule_id: str):
+        if schedule_id not in self.schedules:
+            raise RuntimeError("schedule not found")
+        return self.schedules[schedule_id]
+
+    async def create_json(self, **kwargs):
+        schedule_id = str(kwargs["schedule_id"])
+        schedule = SimpleNamespace(
+            schedule_id=schedule_id,
+            destination=kwargs["destination"],
+            cron=kwargs["cron"],
+            method=kwargs["method"],
+            paused=False,
+        )
+        self.schedules[schedule_id] = schedule
+        self.created.append(kwargs)
+        return schedule_id
+
+    async def delete(self, schedule_id: str) -> None:
+        self.deleted.append(schedule_id)
+        self.schedules.pop(schedule_id, None)
+
+
+class FakeQStashClient:
+    """Fake QStash client used by tests."""
+
+    def __init__(self) -> None:
+        self.message = FakeQStashMessageAPI()
+        self.schedule = FakeQStashScheduleAPI()
+
+
+class FakeS3Client:
+    """Fake S3-compatible client used by tests."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, dict[str, object]] = {}
+
+    def put_object(self, **kwargs) -> None:
+        key = str(kwargs["Key"])
+        self.objects[key] = {
+            "bucket": kwargs["Bucket"],
+            "body": kwargs["Body"],
+            "content_type": kwargs["ContentType"],
+        }
+
+    def generate_presigned_url(self, operation_name: str, **kwargs) -> str:
+        _ = operation_name, kwargs["ExpiresIn"]
+        params = kwargs["Params"]
+        return f"https://r2.example.test/{params['Key']}?signature=test"
 
 
 # Event Loop Management
@@ -296,6 +384,57 @@ def isolated_storage_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pa
     return storage_root
 
 
+@pytest.fixture
+def fake_qstash(monkeypatch: pytest.MonkeyPatch):
+    """Configure the app in QStash mode with a fake client and real signature keys."""
+    from src.shared.qstash import client as qstash_client_module
+
+    fake_client = FakeQStashClient()
+    monkeypatch.setattr(settings, "job_dispatch_mode", "qstash")
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+    monkeypatch.setattr(settings, "qstash_url", "https://qstash.upstash.io")
+    monkeypatch.setattr(settings, "qstash_token", "test-qstash-token")
+    monkeypatch.setattr(settings, "qstash_current_signing_key", "current-test-signing-key-1234567890")
+    monkeypatch.setattr(settings, "qstash_next_signing_key", "next-test-signing-key-1234567890")
+    monkeypatch.setattr(qstash_client_module, "_qstash_client", fake_client)
+    monkeypatch.setattr(qstash_client_module, "_qstash_receiver", None)
+    return fake_client
+
+
+@pytest.fixture
+def fake_s3_client(monkeypatch: pytest.MonkeyPatch):
+    """Provide a fake S3-compatible client for storage tests."""
+    fake_client = FakeS3Client()
+    monkeypatch.setattr(S3StorageBackend, "_get_client", lambda _self: fake_client)
+    return fake_client
+
+
+@pytest.fixture
+def sign_qstash_request():
+    """Build a valid Upstash-Signature header for one raw request body."""
+
+    def _sign(*, body: str, path: str, signing_key: str | None = None) -> dict[str, str]:
+        now = int(time.time())
+        body_hash = base64.urlsafe_b64encode(hashlib.sha256(body.encode()).digest()).decode().rstrip("=")
+        token = jwt.encode(
+            {
+                "iss": "Upstash",
+                "sub": f"{settings.public_base_url.rstrip('/')}{path}",
+                "nbf": now - 1,
+                "exp": now + 300,
+                "body": body_hash,
+            },
+            signing_key or settings.qstash_current_signing_key,
+            algorithm="HS256",
+        )
+        return {
+            "Content-Type": "application/json",
+            "Upstash-Signature": token,
+        }
+
+    return _sign
+
+
 # FastAPI Client & Dependency Overrides
 
 
@@ -314,6 +453,26 @@ async def override_get_db_session(session: AsyncSession):
     app.dependency_overrides[get_tenant_db_session] = _get_test_session
     yield
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def wire_global_session_factory_for_tests(db_connection: AsyncConnection):
+    """Make code paths that call src.database.client.get_session() use the test transaction."""
+    original_session_factory = db_module._async_session_factory
+    original_engine = db_module._engine
+
+    db_module._engine = None
+    db_module._async_session_factory = async_sessionmaker(
+        bind=db_connection,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        join_transaction_mode="create_savepoint",
+    )
+
+    yield
+
+    db_module._async_session_factory = original_session_factory
+    db_module._engine = original_engine
 
 
 @pytest_asyncio.fixture

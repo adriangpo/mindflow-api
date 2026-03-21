@@ -129,6 +129,7 @@ async def _deliver_pending_message(
         message.status = NotificationMessageStatus.FAILED.value
         message.failed_at = attempt_time
         message.failure_reason = str(exc)[:500]
+        message.qstash_message_id = None
         return {"processed_count": 1, "sent_count": 0, "failed_count": 1}
 
     message.status = NotificationMessageStatus.SENT.value
@@ -136,6 +137,7 @@ async def _deliver_pending_message(
     message.failed_at = None
     message.failure_reason = None
     message.provider_message_id = delivery_result.provider_message_id
+    message.qstash_message_id = None
     return {"processed_count": 1, "sent_count": 1, "failed_count": 0}
 
 
@@ -234,6 +236,16 @@ async def dispatch_due_messages_now(
         block_ms=1,
         session=session,
     )
+
+
+async def deliver_message_now(
+    tenant_id: UUID,
+    message_id: int,
+    *,
+    session: AsyncSession | None = None,
+) -> dict[str, int]:
+    """Deliver one pending notification message immediately."""
+    return await _deliver_message_record(tenant_id, message_id, session=session)
 
 
 async def run_notification_scheduler_loop() -> None:

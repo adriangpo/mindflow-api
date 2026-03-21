@@ -3,10 +3,11 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from src.config.settings import settings
 
@@ -91,11 +92,11 @@ async def init_db() -> None:
         _engine = create_async_engine(
             settings.postgres_url,
             echo=settings.postgres_echo,
-            pool_size=settings.postgres_pool_size,
-            max_overflow=settings.postgres_max_overflow,
-            pool_timeout=settings.postgres_pool_timeout,
-            pool_recycle=settings.postgres_pool_recycle,
-            pool_pre_ping=True,  # Verify connections before using
+            poolclass=NullPool,
+            pool_pre_ping=True,
+            connect_args={
+                "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4()}__",
+            },
         )
 
         # Create session factory
