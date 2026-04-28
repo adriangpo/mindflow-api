@@ -233,3 +233,19 @@ class UserService:
 
         logger.info("User deactivated: %s (revoked_refresh_tokens=%s)", user.username, revoked_tokens)
         return True
+
+    @staticmethod
+    async def reactivate_user(session: AsyncSession, user_id: int) -> bool:
+        """Reactivate a previously deactivated user by ID."""
+        stmt = select(User).where(User.id == user_id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            return False
+
+        user.status = UserStatus.ACTIVE.value
+        user.updated_at = datetime.now(UTC)
+
+        logger.info("User reactivated: %s", user.username)
+        return True

@@ -404,3 +404,36 @@ async def deactivate_user(
 
     logger.info("User deactivated by admin %s: %s", current_user.username, user_id)
     return {"message": "User deactivated successfully"}
+
+
+@router.post(
+    "/{user_id}/reactivate",
+    response_model=UserActionMessageResponse,
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    summary="Reactivate a user",
+    description=(
+        "Reactivate a previously deactivated user account by restoring the `active` status. "
+        "The operation is idempotent — calling it on an already-active user has no effect. "
+        "The user must log in again to obtain new tokens."
+    ),
+    response_description="Reactivation confirmation.",
+    responses={
+        **COMMON_ADMIN_RESPONSES,
+        404: {"description": "User not found."},
+        200: json_response("Reactivation confirmation.", {"message": "User reactivated successfully"}),
+    },
+)
+async def reactivate_user(
+    user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Reactivate the target user account."""
+    success = await UserService.reactivate_user(session, user_id)
+    await session.commit()
+
+    if not success:
+        raise UserNotFound()
+
+    logger.info("User reactivated by admin %s: %s", current_user.username, user_id)
+    return {"message": "User reactivated successfully"}

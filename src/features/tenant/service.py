@@ -139,3 +139,10 @@ class TenantService:
         tenant.is_active = False
         tenant.updated_at = datetime.now(UTC)
         logger.info("Tenant deactivated: %s", tenant.id)
+
+    @staticmethod
+    async def reactivate_tenant(tenant: Tenant) -> None:
+        """Reactivate a previously deactivated tenant."""
+        tenant.is_active = True
+        tenant.updated_at = datetime.now(UTC)
+        logger.info("Tenant reactivated: %s", tenant.id)
