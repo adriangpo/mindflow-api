@@ -1,12 +1,13 @@
 """Schedule schemas (DTOs)."""
 
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src.features.schedule_config.schemas import WeekDay
+from src.shared.schema_utils import _ensure_timezone_aware
 
 
 class AppointmentStatus(StrEnum):
@@ -55,12 +56,6 @@ class AppointmentHistoryEvent(StrEnum):
     RESCHEDULED = "rescheduled"
     PAYMENT_STATUS_CHANGED = "payment_status_changed"
     DELETED = "deleted"
-
-
-def _ensure_timezone_aware(value: datetime, *, field_name: str) -> datetime:
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        raise ValueError(f"{field_name} must be timezone-aware")
-    return value
 
 
 class ScheduleAppointmentCreateRequest(BaseModel):
@@ -251,6 +246,3 @@ class ScheduleAvailabilityResponse(BaseModel):
     available_slots: list[ScheduleAvailabilitySlotResponse]
 
 
-def default_reference_date() -> date:
-    """Return current UTC date for default schedule listing."""
-    return datetime.now(UTC).date()
