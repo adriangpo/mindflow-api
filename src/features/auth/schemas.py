@@ -30,14 +30,12 @@ class UserLoginRequest(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def check_password_strength(cls, value: str) -> str:
-        """Validate password strength using shared validator."""
+    def _check_password_strength(cls, value: str) -> str:
         return validate_password_strength(value)
 
     @field_validator("email", mode="after")
     @classmethod
-    def at_least_one_credential(cls, value: str | None, info) -> str | None:
-        """Ensure at least username or email is provided."""
+    def _at_least_one_credential(cls, value: str | None, info) -> str | None:
         username = info.data.get("username")
 
         if not username and not value:
