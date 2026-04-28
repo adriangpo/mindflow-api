@@ -178,7 +178,10 @@ async def list_appointments(
 )
 async def get_appointment_detail(
     appointment_id: int,
-    include_deleted: bool = Query(default=False),
+    include_deleted: bool = Query(
+        default=False,
+        description="When true, returns the appointment even if it has been soft-deleted.",
+    ),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get an appointment and its timeline history."""

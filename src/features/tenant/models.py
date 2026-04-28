@@ -11,10 +11,7 @@ from src.shared.audit.audit import AuditableMixin
 
 
 class Tenant(Base, TimestampMixin, AuditableMixin):
-    """Globally-scoped tenant model.
-
-    Represents a clinic/professional workspace boundary used by tenant-scoped data.
-    """
+    """Globally-scoped tenant representing a clinic or professional workspace boundary."""
 
     __tablename__ = "tenants"
 
