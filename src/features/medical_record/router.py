@@ -42,7 +42,7 @@ from .service import MedicalRecordService
 router = APIRouter(
     prefix="/medical-records",
     tags=["Medical Record Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER))],
+    dependencies=[Depends(require_role(UserRole.TENANT_OWNER)), Depends(require_tenant_membership)],
 )
 
 
@@ -92,7 +92,6 @@ async def list_medical_records(
         default=None,
         description="Include records whose recorded date is on or before this value.",
     ),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List tenant medical records with optional filters."""
@@ -125,7 +124,6 @@ async def list_medical_records(
 async def get_patient_medical_record_history(
     patient_id: int,
     pagination: PaginationParams = Depends(),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List consultation history records for a patient."""
@@ -220,7 +218,6 @@ async def export_single_medical_record_pdf(
 )
 async def get_medical_record(
     record_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get one medical record by id."""
@@ -239,7 +236,6 @@ async def get_medical_record(
 async def update_medical_record(
     record_id: int,
     data: MedicalRecordUpdateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update a medical record entry."""

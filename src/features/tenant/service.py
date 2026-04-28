@@ -3,7 +3,6 @@
 import logging
 import re
 import unicodedata
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -129,7 +128,6 @@ class TenantService:
                 await TenantService._ensure_slug_available(session, normalized_slug, exclude_tenant_id=tenant.id)
                 tenant.slug = normalized_slug
 
-        tenant.updated_at = datetime.now(UTC)
         logger.info("Tenant updated: %s", tenant.id)
         return tenant
 
@@ -137,7 +135,6 @@ class TenantService:
     async def delete_tenant(tenant: Tenant) -> None:
         """Deactivate tenant instead of deleting it."""
         tenant.is_active = False
-        tenant.updated_at = datetime.now(UTC)
         logger.info("Tenant deactivated: %s", tenant.id)
 
     @staticmethod
@@ -162,5 +159,4 @@ class TenantService:
     async def reactivate_tenant(tenant: Tenant) -> None:
         """Reactivate a previously deactivated tenant."""
         tenant.is_active = True
-        tenant.updated_at = datetime.now(UTC)
         logger.info("Tenant reactivated: %s", tenant.id)

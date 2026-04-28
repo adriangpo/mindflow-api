@@ -55,7 +55,7 @@ from .service import PatientService, is_patient_cpf_unique_violation
 router = APIRouter(
     prefix="/patients",
     tags=["Patient Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER))],
+    dependencies=[Depends(require_role(UserRole.TENANT_OWNER)), Depends(require_tenant_membership)],
 )
 
 
@@ -89,7 +89,6 @@ def _merged_registered_payload(patient, data: PatientUpdateRequest) -> dict:
 )
 async def create_patient(
     data: PatientCreateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create a fully registered patient."""
@@ -115,7 +114,6 @@ async def create_patient(
 )
 async def quick_register_patient(
     data: PatientQuickCreateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create patient with name only for first consultation registration."""
@@ -149,7 +147,6 @@ async def list_patients(
         default=None,
         description="Filter by registration state when provided.",
     ),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List patients from tenant with search, activity, and registration filters."""
@@ -178,7 +175,6 @@ async def list_patients(
 )
 async def get_patient(
     patient_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get patient by id."""
@@ -221,7 +217,6 @@ async def export_patient_complete_pdf(
 async def update_patient(
     patient_id: int,
     data: PatientUpdateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update patient data."""
@@ -260,7 +255,6 @@ async def update_patient(
 async def complete_patient_registration(
     patient_id: int,
     data: PatientCompleteRegistrationRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Complete registration for a quick-registered patient."""
@@ -290,7 +284,6 @@ async def complete_patient_registration(
 async def update_patient_profile_photo(
     patient_id: int,
     data: PatientProfilePhotoUpdateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update patient profile photo URL."""
@@ -315,7 +308,6 @@ async def update_patient_profile_photo(
 )
 async def inactivate_patient(
     patient_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Inactivate patient and keep retention metadata."""
@@ -335,7 +327,6 @@ async def inactivate_patient(
 )
 async def reactivate_patient(
     patient_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Reactivate previously inactivated patient."""

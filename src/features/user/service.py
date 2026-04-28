@@ -1,7 +1,6 @@
 """User service layer."""
 
 import logging
-from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -91,7 +90,6 @@ class UserService:
 
         """
         user.roles = [role.value for role in roles]
-        user.updated_at = datetime.now(UTC)
         logger.info("Roles assigned to user %s: %s", user.username, list(roles))
         return user
 
@@ -108,7 +106,6 @@ class UserService:
 
         """
         user.permissions = permissions
-        user.updated_at = datetime.now(UTC)
         logger.info("Permissions assigned to user %s: %s", user.username, permissions)
         return user
 
@@ -116,7 +113,6 @@ class UserService:
     async def assign_tenants(user: User, tenant_ids: list[UUID]) -> User:
         """Assign tenant access to a user."""
         user.tenant_ids = tenant_ids
-        user.updated_at = datetime.now(UTC)
         logger.info("Tenant access assigned to user %s: %s", user.username, tenant_ids)
         return user
 
@@ -184,7 +180,6 @@ class UserService:
             if value is not None and hasattr(user, key) and key in ("full_name", "email"):
                 setattr(user, key, value)
 
-        user.updated_at = datetime.now(UTC)
         logger.info("User updated: %s", user.username)
         return user
 
@@ -210,7 +205,6 @@ class UserService:
 
         # Update password (salt handled automatically by Argon2)
         user.hashed_password = User.hash_password(new_password)
-        user.updated_at = datetime.now(UTC)
 
         logger.info("Password changed for user: %s", user.username)
         return True
@@ -229,7 +223,6 @@ class UserService:
 
         user.status = UserStatus.INACTIVE.value
         user.is_logged_in = False
-        user.updated_at = datetime.now(UTC)
 
         logger.info("User deactivated: %s (revoked_refresh_tokens=%s)", user.username, revoked_tokens)
         return True
@@ -245,7 +238,6 @@ class UserService:
             return False
 
         user.status = UserStatus.ACTIVE.value
-        user.updated_at = datetime.now(UTC)
 
         logger.info("User reactivated: %s", user.username)
         return True

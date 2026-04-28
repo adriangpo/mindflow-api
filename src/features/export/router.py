@@ -28,6 +28,7 @@ from .service import ExportService
 router = APIRouter(
     prefix="/exports",
     tags=["Exports"],
+    dependencies=[Depends(require_tenant_membership)],
 )
 
 internal_router = APIRouter(

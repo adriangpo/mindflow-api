@@ -575,3 +575,56 @@ After any code change, complete all checkpoints below.
 - Check migrations (`alembic/versions/`) and model import coverage in `alembic/env.py`.
 - Check this guide (`AGENTS.md`) and update it if project rules or workflows changed.
 - Apply required updates in the same change set.
+
+---
+
+## 16. Router Coding Standards
+
+### 16.1 Dependency Placement
+
+Auth and tenant-membership checks belong at the router or route level via `dependencies=[...]`, never as `_: User = Depends(...)` in handler signatures.
+
+**Router-level `dependencies`**: use when the check applies to every route in the router.
+
+- Routers where every route requires the same role and tenant membership must declare both `require_role(...)` and `require_tenant_membership` in the `APIRouter(dependencies=[...])`.
+- Routers with mixed access levels (e.g. `user/router.py` with both public and admin routes) must apply guards per-route via `dependencies=[...]` in the route decorator.
+
+**Handler injection**: inject `current_user: User = Depends(require_tenant_membership)` in the function signature only when the handler body uses the `User` object. FastAPI caches dependency results within a request, so router-level and handler-level usage of the same dependency do not double-invoke it.
+
+**Never use `_: User = Depends(...)`** — discard-pattern injections must be moved to `dependencies=[...]` instead.
+
+### 16.2 Decorator Field Order
+
+Route decorator keyword arguments must follow this order:
+
+1. `response_model`
+2. `status_code` (only when non-default)
+3. `summary`
+4. `description`
+5. `response_description`
+6. `responses`
+7. `openapi_extra` (only when present)
+
+### 16.3 Query Parameter Descriptions
+
+Every `Query(...)` parameter must include a `description` string.
+
+### 16.4 Route Function Docstrings
+
+Route handler docstrings must be single-line. Move explanatory prose to the route `description` field in the decorator instead.
+
+### 16.5 No Inline Comments in Handlers
+
+Do not add inline comments inside route handler bodies. Explanatory context belongs in the `description` field of the route decorator.
+
+---
+
+## 17. Model and Service Coding Standards
+
+### 17.1 `updated_at` Is ORM-Managed
+
+`TimestampMixin` declares `updated_at` with `onupdate=lambda: datetime.now(UTC)`. SQLAlchemy automatically includes this column in every ORM-generated `UPDATE` whenever any other mapped attribute on the row is dirty.
+
+**Never manually set `model.updated_at = datetime.now(UTC)` in service methods** — it is redundant for any model that inherits `TimestampMixin`.
+
+The only exception is non-ORM objects (e.g. Redis-backed Pydantic snapshots like `ExportJobSnapshot`) that do not go through the SQLAlchemy unit-of-work pipeline.

@@ -41,6 +41,7 @@ from .service import FinanceService
 router = APIRouter(
     prefix="/finance",
     tags=["Finance Management"],
+    dependencies=[Depends(require_tenant_membership)],
 )
 
 
@@ -94,7 +95,6 @@ async def list_financial_entries(
         default=False,
         description="Set to `true` to include reversed entries in the list.",
     ),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List manual financial entries with filters and optional pagination."""
@@ -125,7 +125,6 @@ async def list_financial_entries(
 )
 async def get_financial_entry(
     entry_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get one manual financial entry from the current tenant."""
@@ -180,7 +179,6 @@ async def get_finance_report(
         default=None,
         description="Inclusive end date used only when `view=custom`.",
     ),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Build a tenant finance summary for the requested time window."""
