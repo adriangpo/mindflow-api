@@ -34,6 +34,16 @@ class TenantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TenantSummaryResponse(BaseModel):
+    """Minimal tenant projection returned for user-accessible tenant listings."""
+
+    id: UUID
+    name: str
+    slug: str
+
+    model_config = {"from_attributes": True}
+
+
 class TenantListResponse(BaseModel):
     """Tenant list response."""
 

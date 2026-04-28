@@ -141,6 +141,24 @@ class TenantService:
         logger.info("Tenant deactivated: %s", tenant.id)
 
     @staticmethod
+    async def get_accessible_tenants(
+        session: AsyncSession, tenant_ids: list[UUID], is_admin: bool
+    ) -> list[Tenant]:
+        """Return active tenants the user can access.
+
+        Admins receive every active tenant; other users receive only their assigned active tenants.
+        """
+        if is_admin:
+            stmt = select(Tenant).where(Tenant.is_active.is_(True))
+        else:
+            if not tenant_ids:
+                return []
+            stmt = select(Tenant).where(Tenant.id.in_(tenant_ids), Tenant.is_active.is_(True))
+
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
     async def reactivate_tenant(tenant: Tenant) -> None:
         """Reactivate a previously deactivated tenant."""
         tenant.is_active = True
