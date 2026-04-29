@@ -244,5 +244,3 @@ class ScheduleAvailabilityResponse(BaseModel):
     slot_duration_minutes: int
     break_between_appointments_minutes: int
     available_slots: list[ScheduleAvailabilitySlotResponse]
-
-

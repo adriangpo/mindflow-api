@@ -138,9 +138,7 @@ class TenantService:
         logger.info("Tenant deactivated: %s", tenant.id)
 
     @staticmethod
-    async def get_accessible_tenants(
-        session: AsyncSession, tenant_ids: list[UUID], is_admin: bool
-    ) -> list[Tenant]:
+    async def get_accessible_tenants(session: AsyncSession, tenant_ids: list[UUID], is_admin: bool) -> list[Tenant]:
         """Return active tenants the user can access.
 
         Admins receive every active tenant; other users receive only their assigned active tenants.

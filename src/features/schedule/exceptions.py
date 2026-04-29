@@ -47,16 +47,6 @@ class ScheduleConfigurationRequired(ScheduleException):
         )
 
 
-class ScheduleAppointmentInPast(ScheduleException):
-    """Raised when appointment is scheduled in the past."""
-
-    def __init__(self):
-        super().__init__(
-            detail="Appointments cannot be created or moved to a past datetime",
-            status_code=status.HTTP_400_BAD_REQUEST,
-        )
-
-
 class ScheduleInvalidTimeWindow(ScheduleException):
     """Raised when appointment time range is invalid."""
 

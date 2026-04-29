@@ -1,9 +1,9 @@
-# AGENTS.md
+# CLAUDE.md
 
 ## 1. Purpose
 
 - This file is the implementation-verified reference manual for autonomous coding agents working in this repository.
-- When external runtime configuration instructs the agent to follow `AGENTS.md`, this file defines the default repository rules unless a more specific scoped agent file exists.
+- When external runtime configuration instructs the agent to follow `CLAUDE.md`, this file defines the default repository rules unless a more specific scoped agent file exists.
 
 Source-of-truth order:
 
@@ -390,6 +390,10 @@ When the user EXPLICITLY requests git actions:
 - If there are different contexts, create separate commits.
 - Do not mix unrelated contexts in a single commit.
 
+Commit message rules:
+
+- Never add `Co-Authored-By` trailers to commit messages.
+
 Pull request rules:
 
 - Target branch must be `development` by default.
@@ -573,7 +577,7 @@ After any code change, complete all checkpoints below.
 - Check tests (`tests/`) for needed additions or updates.
 - Check docs (`docs/`) for needed updates.
 - Check migrations (`alembic/versions/`) and model import coverage in `alembic/env.py`.
-- Check this guide (`AGENTS.md`) and update it if project rules or workflows changed.
+- Check this guide (`CLAUDE.md`) and update it if project rules or workflows changed.
 - Apply required updates in the same change set.
 
 ---
