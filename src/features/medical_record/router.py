@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
@@ -334,9 +334,9 @@ async def get_medical_record_attachment(
 
     if download.path is not None:
         return FileResponse(path=download.path, media_type=content_type, filename=path.name)
-    if download.body is not None:
-        return Response(
-            content=download.body,
+    if download.stream is not None:
+        return StreamingResponse(
+            download.stream,
             media_type=content_type,
             headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
         )
