@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
 <style>
@@ -129,7 +129,7 @@
 <div class="header">
   <div class="header-title">{{ report_title }}</div>
   <div class="header-subtitle">{{ header_subtitle }}</div>
-  <div class="header-meta">Generated on {{ generated_at }} &nbsp;|&nbsp; {{ records|length }} record{% if records|length != 1 %}s{% endif %} included</div>
+  <div class="header-meta">Gerado em {{ generated_at }} &nbsp;|&nbsp; {{ records|length }} registro{% if records|length != 1 %}s{% endif %} incluído{% if records|length != 1 %}s{% endif %}</div>
 </div>
 
 <div class="body">
@@ -138,10 +138,10 @@
   <div class="patient-info-bar">
     <div class="patient-info-bar-cell">
       <div class="patient-name">{{ patient_name }}</div>
-      <div class="patient-sub">Patient</div>
+      <div class="patient-sub">Paciente</div>
     </div>
     <div class="patient-info-bar-cell">
-      <div class="patient-sub">Total records: {{ records|length }}</div>
+      <div class="patient-sub">Total de registros: {{ records|length }}</div>
     </div>
   </div>
   {% endif %}
@@ -151,8 +151,8 @@
     <div class="record-card">
       <div class="record-card-header">
         <div class="record-card-header-left">
-          <div class="record-card-id">Record #{{ rec.id }}</div>
-          <div class="record-card-title">{% if rec.title %}{{ rec.title }}{% else %}Consultation Note{% endif %}</div>
+          <div class="record-card-id">Prontuário #{{ rec.id }}</div>
+          <div class="record-card-title">{% if rec.title %}{{ rec.title }}{% else %}Nota de Consulta{% endif %}</div>
           {% if not patient_name and rec.patient_name %}
           <div class="record-card-patient">{{ rec.patient_name }}</div>
           {% endif %}
@@ -164,27 +164,27 @@
       <div class="record-card-body">
 
         <div class="record-field">
-          <div class="record-field-label">Content</div>
+          <div class="record-field-label">Conteúdo</div>
           <div class="record-field-value">{{ rec.content }}</div>
         </div>
 
         {% if rec.clinical_assessment %}
         <div class="record-field">
-          <div class="record-field-label">Clinical Assessment</div>
+          <div class="record-field-label">Avaliação Clínica</div>
           <div class="record-field-value">{{ rec.clinical_assessment }}</div>
         </div>
         {% endif %}
 
         {% if rec.treatment_plan %}
         <div class="record-field">
-          <div class="record-field-label">Treatment Plan</div>
+          <div class="record-field-label">Plano de Tratamento</div>
           <div class="record-field-value">{{ rec.treatment_plan }}</div>
         </div>
         {% endif %}
 
         {% if rec.attachments %}
         <div class="record-field">
-          <div class="record-field-label">Attachments ({{ rec.attachments|length }})</div>
+          <div class="record-field-label">Anexos ({{ rec.attachments|length }})</div>
           <ul class="attachments-list">
             {% for att in rec.attachments %}
             <li>{{ att }}</li>
@@ -197,13 +197,13 @@
     </div>
     {% endfor %}
   {% else %}
-  <div class="no-data">No medical records found for this export.</div>
+  <div class="no-data">Nenhum prontuário encontrado para este relatório.</div>
   {% endif %}
 
 </div>
 
 <div class="footer">
-  This document is confidential and intended solely for clinical use. &nbsp;&bull;&nbsp; Mindflow &nbsp;&bull;&nbsp; Generated {{ generated_at }}
+  Este documento é confidencial e destinado exclusivamente ao uso clínico. &nbsp;&bull;&nbsp; Mindflow &nbsp;&bull;&nbsp; Gerado em {{ generated_at }}
 </div>
 
 </body>

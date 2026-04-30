@@ -329,11 +329,11 @@ class MedicalRecordService:
         record = await MedicalRecordService.require_record(session, record_id)
         tenant_id = MedicalRecordService._require_tenant_id(session)
         names = await MedicalRecordService._patient_name_map(session, {record.patient_id})
-        patient_name = names.get(record.patient_id, f"Patient #{record.patient_id}")
+        patient_name = names.get(record.patient_id, f"Paciente #{record.patient_id}")
 
         context = {
-            "report_title": "Medical Record Export",
-            "header_subtitle": f"Single Consultation — {patient_name}",
+            "report_title": "Exportação de Prontuário",
+            "header_subtitle": f"Consulta Individual — {patient_name}",
             "patient_name": patient_name,
             "records": [_record_context(record, patient_name)],
             "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
@@ -362,7 +362,7 @@ class MedicalRecordService:
             raise MedicalRecordExportEmpty()
 
         context = {
-            "report_title": "Medical Record History",
+            "report_title": "Histórico de Prontuários",
             "header_subtitle": patient.full_name,
             "patient_name": patient.full_name,
             "records": [_record_context(r, patient.full_name) for r in records],
@@ -389,10 +389,10 @@ class MedicalRecordService:
         names = await MedicalRecordService._patient_name_map(session, {r.patient_id for r in records})
 
         context = {
-            "report_title": "Medical Records Export — All Patients",
-            "header_subtitle": "Complete Tenant Record History",
+            "report_title": "Exportação de Prontuários — Todos os Pacientes",
+            "header_subtitle": "Histórico Completo de Registros",
             "patient_name": None,
-            "records": [_record_context(r, names.get(r.patient_id, f"Patient #{r.patient_id}")) for r in records],
+            "records": [_record_context(r, names.get(r.patient_id, f"Paciente #{r.patient_id}")) for r in records],
             "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         }
         pdf_bytes = build_pdf_from_template("medical_record_export.html", context)
