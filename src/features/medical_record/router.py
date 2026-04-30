@@ -1,8 +1,12 @@
 """Medical record router (API endpoints)."""
 
+import mimetypes
 from datetime import date
+from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
@@ -38,6 +42,7 @@ from .schemas import (
     MedicalRecordUpdateRequest,
 )
 from .service import MedicalRecordService
+from .storage import MedicalRecordStorage
 
 router = APIRouter(
     prefix="/medical-records",
@@ -229,18 +234,109 @@ async def get_medical_record(
     "/{record_id}",
     response_model=MedicalRecordResponse,
     summary="Update a medical record",
-    description=MEDICAL_RECORD_UPDATE_DESCRIPTION,
+    description=(
+        MEDICAL_RECORD_UPDATE_DESCRIPTION + "\n\nThis endpoint accepts `multipart/form-data`. "
+        "Send the JSON update payload as the `data` field and optional attachment files as `files`. "
+        "When `files` are provided they replace all existing attachments. "
+        "Omit `files` to leave existing attachments unchanged."
+    ),
     response_description="The updated consultation note for the current tenant.",
     responses=UPDATE_MEDICAL_RECORD_RESPONSES,
 )
 async def update_medical_record(
     record_id: int,
-    data: MedicalRecordUpdateRequest,
+    data: Annotated[
+        str,
+        Form(
+            description=(
+                "JSON object with the fields to update. "
+                "Accepted keys: patient_id, appointment_id, recorded_at, title, content, "
+                "clinical_assessment, treatment_plan. "
+                "Omit a key to leave its value unchanged. "
+                "Attachments are managed via the `files` field."
+            )
+        ),
+    ] = "{}",
+    files: Annotated[
+        list[UploadFile] | None,
+        File(description="Attachment files to store. When provided, replaces all existing attachments."),
+    ] = None,
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Update a medical record entry."""
+    """Update a medical record entry with optional file attachment upload."""
     record = await MedicalRecordService.require_record(session, record_id)
-    updated = await MedicalRecordService.update_record(session, record, data)
+    update_request = MedicalRecordUpdateRequest.model_validate_json(data)
+
+    attachment_paths: list[str] | None = None
+    if files is not None and len(files) > 0:
+        tenant_id = session.info["tenant_id"]
+        storage = MedicalRecordStorage()
+        paths: list[str] = []
+        for f in files:
+            file_data = await f.read()
+            stored = storage.store_attachment(
+                tenant_id,
+                record.id,
+                f.filename or "attachment",
+                file_data,
+                f.content_type or "application/octet-stream",
+            )
+            paths.append(str(stored.relative_path))
+        attachment_paths = paths
+
+    updated = await MedicalRecordService.update_record(
+        session, record, update_request, attachment_paths=attachment_paths
+    )
     await session.commit()
     await session.refresh(updated)
     return MedicalRecordResponse.model_validate(updated)
+
+
+@router.get(
+    "/{record_id}/attachments/{index}",
+    summary="Download a medical record attachment",
+    description=(
+        "Download or redirect to one attachment stored for a medical record. "
+        "The index corresponds to the position of the attachment in the record's attachment list. "
+        "For local storage the response is a direct binary download. "
+        "For S3-compatible storage the API returns a 307 redirect to a presigned URL."
+    ),
+    response_description="Binary file download or temporary redirect to a presigned URL.",
+    responses={
+        200: {"description": "Binary file download."},
+        307: {"description": "Temporary redirect to a presigned S3 URL."},
+        404: {"description": "Attachment not found at the given index."},
+    },
+)
+async def get_medical_record_attachment(
+    record_id: int,
+    index: int,
+    session: AsyncSession = Depends(get_tenant_db_session),
+):
+    """Serve or redirect to a stored attachment for a medical record."""
+    record = await MedicalRecordService.require_record(session, record_id)
+
+    if index < 0 or index >= len(record.attachments):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Attachment at index {index} not found. Record has {len(record.attachments)} attachment(s).",
+        )
+
+    relative_path = record.attachments[index]
+    path = Path(relative_path)
+    content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+    try:
+        download = MedicalRecordStorage().resolve_attachment_download(
+            relative_path,
+            filename=path.name,
+            content_type=content_type,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment file not found.") from exc
+
+    if download.path is not None:
+        return FileResponse(path=download.path, media_type=content_type, filename=path.name)
+    if download.url is not None:
+        return RedirectResponse(download.url, status_code=307)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment could not be resolved.")

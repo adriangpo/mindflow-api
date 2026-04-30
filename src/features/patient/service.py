@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.features.medical_record.models import MedicalRecord
 from src.features.schedule.models import ScheduleAppointment
 from src.shared.pagination.pagination import PaginationParams
-from src.shared.pdf import append_wrapped, build_pdf
+from src.shared.pdf import build_pdf_from_template
 from src.shared.storage import StoredFile
 
 from .exceptions import (
@@ -40,6 +40,27 @@ def is_patient_cpf_unique_violation(exc: IntegrityError) -> bool:
         return True
 
     return TENANT_CPF_UNIQUE_CONSTRAINT in str(getattr(exc, "orig", exc))
+
+
+def _fmt_date(value: object) -> str:
+    """Format a date or None for template rendering."""
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _fmt_datetime(value: datetime | None) -> str:
+    """Format a datetime for template rendering."""
+    if value is None:
+        return ""
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _fmt_decimal(value: Decimal | None) -> str:
+    """Format a Decimal for template rendering."""
+    if value is None:
+        return "0.00"
+    return f"{value:.2f}"
 
 
 class PatientService:
@@ -276,10 +297,13 @@ class PatientService:
     async def update_profile_photo(
         session: AsyncSession,
         patient: Patient,
-        profile_photo_url: str | None,
+        file_data: bytes,
+        content_type: str,
     ) -> Patient:
-        """Update patient profile photo URL."""
-        patient.profile_photo_url = profile_photo_url
+        """Store an uploaded profile photo and update the patient record."""
+        tenant_id = PatientService._require_tenant_id(session)
+        stored = PatientStorage().store_profile_photo(tenant_id, patient.id, file_data, content_type)
+        patient.profile_photo_url = str(stored.relative_path)
         await session.flush()
         return patient
 
@@ -309,105 +333,8 @@ class PatientService:
         return patient
 
     @staticmethod
-    def _format_decimal(value: Decimal | None) -> str:
-        """Format decimal values for patient PDF output."""
-        if value is None:
-            return "None"
-        return f"{value:.2f}"
-
-    @staticmethod
-    def _format_datetime(value: datetime | None) -> str:
-        """Format datetimes consistently for patient PDF output."""
-        if value is None:
-            return "None"
-        return value.astimezone(UTC).isoformat()
-
-    @staticmethod
-    def _append_patient_profile(lines: list[str], patient: Patient) -> None:
-        """Append the patient profile section to an export document."""
-        lines.append("Patient Profile")
-        lines.append(f"Patient ID: {patient.id}")
-        append_wrapped(lines, "Full Name", patient.full_name)
-        append_wrapped(lines, "Birth Date", str(patient.birth_date) if patient.birth_date is not None else "None")
-        append_wrapped(lines, "CPF", patient.cpf or "None")
-        append_wrapped(lines, "CEP", patient.cep or "None")
-        append_wrapped(lines, "Phone", patient.phone_number or "None")
-        append_wrapped(lines, "Session Price", PatientService._format_decimal(patient.session_price))
-        append_wrapped(lines, "Session Frequency", patient.session_frequency or "None")
-        append_wrapped(
-            lines,
-            "First Session Date",
-            str(patient.first_session_date) if patient.first_session_date is not None else "None",
-        )
-        append_wrapped(lines, "Guardian Name", patient.guardian_name or "None")
-        append_wrapped(lines, "Guardian Phone", patient.guardian_phone or "None")
-        append_wrapped(lines, "Profile Photo URL", patient.profile_photo_url or "None")
-        append_wrapped(lines, "Registered", "Yes" if patient.is_registered else "No")
-        append_wrapped(lines, "Active", "Yes" if patient.is_active else "No")
-        append_wrapped(lines, "Initial Record", patient.initial_record or "None")
-        lines.append("")
-
-    @staticmethod
-    def _append_patient_appointments(lines: list[str], appointments: list[ScheduleAppointment]) -> None:
-        """Append the appointment history section to an export document."""
-        lines.append("Appointment History")
-        if not appointments:
-            lines.append("No appointments available")
-            lines.append("")
-            return
-
-        for appointment in appointments:
-            lines.append(f"Appointment ID: {appointment.id}")
-            append_wrapped(lines, "Starts At", PatientService._format_datetime(appointment.starts_at))
-            append_wrapped(lines, "Ends At", PatientService._format_datetime(appointment.ends_at))
-            append_wrapped(lines, "Modality", appointment.modality)
-            append_wrapped(lines, "Status", appointment.status)
-            append_wrapped(lines, "Payment Status", appointment.payment_status)
-            append_wrapped(lines, "Charge Amount", PatientService._format_decimal(appointment.charge_amount))
-            append_wrapped(lines, "Paid At", PatientService._format_datetime(appointment.paid_at))
-            append_wrapped(lines, "Notes", appointment.notes or "None")
-            lines.append("")
-
-    @staticmethod
-    def _append_patient_medical_records(lines: list[str], records: list[MedicalRecord]) -> None:
-        """Append the medical-record history section to an export document."""
-        lines.append("Medical Record History")
-        if not records:
-            lines.append("No medical records available")
-            lines.append("")
-            return
-
-        for record in records:
-            lines.append(f"Medical Record ID: {record.id}")
-            append_wrapped(lines, "Recorded At", PatientService._format_datetime(record.recorded_at))
-            append_wrapped(lines, "Title", record.title or "None")
-            append_wrapped(lines, "Content", record.content)
-            append_wrapped(lines, "Clinical Assessment", record.clinical_assessment or "None")
-            append_wrapped(lines, "Treatment Plan", record.treatment_plan or "None")
-            append_wrapped(lines, "Attachments", ", ".join(record.attachments) if record.attachments else "None")
-            lines.append("")
-
-    @staticmethod
-    def _append_patient_billing(lines: list[str], appointments: list[ScheduleAppointment]) -> None:
-        """Append the appointment-derived billing section to an export document."""
-        paid_total = sum(
-            (appointment.charge_amount for appointment in appointments if appointment.paid_at is not None),
-            Decimal("0.00"),
-        )
-        pending_total = sum(
-            (appointment.charge_amount for appointment in appointments if appointment.payment_status != "paid"),
-            Decimal("0.00"),
-        )
-
-        lines.append("Billing History")
-        lines.append(f"Appointments Count: {len(appointments)}")
-        lines.append(f"Paid Total: {PatientService._format_decimal(paid_total)}")
-        lines.append(f"Pending Or Uncharged Total: {PatientService._format_decimal(pending_total)}")
-        lines.append("")
-
-    @staticmethod
     async def export_complete_patient_pdf(session: AsyncSession, patient_id: int) -> StoredFile:
-        """Export a full patient dossier as PDF."""
+        """Export a full patient dossier as a styled PDF."""
         patient = await PatientService.require_patient(session, patient_id)
         tenant_id = PatientService._require_tenant_id(session)
 
@@ -432,11 +359,53 @@ class PatientService:
         )
         records = list(records_result.scalars().all())
 
-        lines: list[str] = []
-        PatientService._append_patient_profile(lines, patient)
-        PatientService._append_patient_appointments(lines, appointments)
-        PatientService._append_patient_medical_records(lines, records)
-        PatientService._append_patient_billing(lines, appointments)
+        paid_total = sum(
+            (a.charge_amount for a in appointments if a.paid_at is not None),
+            Decimal("0.00"),
+        )
+        total_charged = sum((a.charge_amount for a in appointments), Decimal("0.00"))
+        pending_total = total_charged - paid_total
 
-        pdf_bytes = build_pdf(f"Patient Complete Export - {patient.full_name}", lines)
+        appt_context = [
+            {
+                "id": a.id,
+                "starts_at_fmt": _fmt_datetime(a.starts_at),
+                "ends_at_fmt": _fmt_datetime(a.ends_at),
+                "modality": a.modality,
+                "status": a.status,
+                "payment_status": a.payment_status,
+                "charge_amount": _fmt_decimal(a.charge_amount),
+                "paid_at_fmt": _fmt_datetime(a.paid_at),
+                "notes": a.notes or "",
+            }
+            for a in appointments
+        ]
+
+        rec_context = [
+            {
+                "id": r.id,
+                "recorded_at_fmt": _fmt_datetime(r.recorded_at),
+                "title": r.title or "",
+                "content": r.content,
+                "clinical_assessment": r.clinical_assessment or "",
+                "treatment_plan": r.treatment_plan or "",
+                "attachments": r.attachments or [],
+            }
+            for r in records
+        ]
+
+        context = {
+            "patient": patient,
+            "appointments": appt_context,
+            "records": rec_context,
+            "billing": {
+                "total_appointments": len(appointments),
+                "total_charged": total_charged,
+                "total_paid": paid_total,
+                "total_pending": pending_total,
+            },
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+
+        pdf_bytes = build_pdf_from_template("patient_export.html", context)
         return PatientStorage().store_complete_patient_export(tenant_id, patient.id, pdf_bytes)

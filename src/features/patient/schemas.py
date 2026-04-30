@@ -233,12 +233,6 @@ class PatientCompleteRegistrationRequest(PatientCreateRequest):
     """Complete registration for a previously quick-registered patient."""
 
 
-class PatientProfilePhotoUpdateRequest(BaseModel):
-    """Patient profile photo update request."""
-
-    profile_photo_url: HttpUrl | None = None
-
-
 class PatientResponse(BaseModel):
     """Patient response."""
 

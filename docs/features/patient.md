@@ -141,11 +141,6 @@ Important update behavior:
 
 - extends `PatientCreateRequest` (same required fields and validations)
 
-### `PatientProfilePhotoUpdateRequest`
-
-- `profile_photo_url: HttpUrl | None`
-- supports clearing photo by sending `null`
-
 ### Response DTOs
 
 - `PatientResponse`: full patient state including `is_registered`, `is_active`, inactivation/retention timestamps
@@ -317,11 +312,19 @@ Errors:
 
 ### `PATCH /api/patients/{patient_id}/profile-photo`
 
-Updates only profile photo URL.
+Uploads a profile photo file for the patient.
+
+Content type: `multipart/form-data`.
+
+Request field:
+
+- `file` (required): image file; accepted MIME types are `image/jpeg`, `image/png`, `image/webp`
 
 Behavior:
 
-- accepts URL or `null`
+- rejects files with any other content type with `422`
+- stores the file through the storage backend under `patients/photos/<tenant-id>/<patient-id>/profile-photo.<ext>`
+- updates `profile_photo_url` on the patient record to the stored relative path
 
 Success:
 
@@ -331,7 +334,27 @@ Errors:
 
 - `404` `Patient not found`
 - `400`/`401`/`403` access errors
-- `422` validation errors
+- `422` unsupported file type or path parameter errors
+
+### `GET /api/patients/{patient_id}/profile-photo`
+
+Downloads or redirects to the stored profile photo.
+
+Behavior:
+
+- returns `404` when no photo has been uploaded
+- for local storage: returns a direct binary file response (`FileResponse`)
+- for S3-compatible storage: returns a `307` redirect to a presigned URL
+
+Success:
+
+- `200` binary image file
+- `307` redirect to presigned S3 URL
+
+Errors:
+
+- `404` no photo found, or the stored file is missing on disk
+- `400`/`401`/`403` access errors
 
 ### `DELETE /api/patients/{patient_id}`
 
@@ -433,9 +456,10 @@ Errors:
 - enforces CPF uniqueness when CPF changed
 - sets `is_registered=true`, `is_active=true`, clears inactivation/retention metadata
 
-### `update_profile_photo(session, patient, profile_photo_url)`
+### `update_profile_photo(session, patient, file_data, content_type)`
 
-- updates only `profile_photo_url` (including `None`)
+- calls `PatientStorage().store_profile_photo(tenant_id, patient.id, file_data, content_type)` to persist the binary
+- updates `patient.profile_photo_url` to the stored relative path string
 
 ### `inactivate_patient(session, patient)`
 
@@ -452,8 +476,9 @@ Errors:
 - loads the patient in current tenant scope
 - loads non-deleted appointments ordered by latest first
 - loads medical records ordered by latest first
-- renders one PDF with profile, appointment history, medical record history, and appointment-derived billing totals
-- stores the file under `storage/patients/exports/<tenant-id>/...`
+- renders a styled HTML dossier via `build_pdf_from_template("patient_export.html", context)` (Jinja2 + WeasyPrint)
+- dossier sections: patient profile, appointment history table, medical record cards, appointment-derived billing totals
+- stores the resulting PDF under `storage/patients/exports/<tenant-id>/...`
 
 ## Error Handling
 
@@ -481,8 +506,9 @@ Validation-originated errors:
 - inactivation stores retention deadline for logical record retention.
 - patient model uses `AuditableMixin`, so insert/update operations in these flows write audit entries.
 - tenant DB dependency sets transaction-scoped tenant context before service operations.
+- profile photo upload stores a binary file through the storage backend; `profile_photo_url` becomes a relative storage path, not an HTTP URL.
 - export initiation validates the patient and enqueues a shared async export job.
-- completed dossier files are stored under `storage/patients/exports/<tenant-id>/...`.
+- completed dossier PDFs are generated from an HTML template via WeasyPrint and stored under `storage/patients/exports/<tenant-id>/...`.
 
 Transaction behavior:
 
@@ -495,4 +521,6 @@ Transaction behavior:
 - Use quick registration for first-contact flows; finish later via `complete-registration`.
 - Treat `DELETE /patients/{id}` as inactivation, not hard deletion.
 - For lists, default behavior excludes inactive patients (`active_only=true`).
+- Profile photo upload uses `multipart/form-data` with a `file` field; accepted types are JPEG, PNG, WebP.
+- After upload, `profile_photo_url` is a storage path string, not an HTTP URL. Use `GET /api/patients/{id}/profile-photo` to retrieve the binary or follow the presigned redirect.
 - Dossier export is async; after `POST /api/patients/{id}/export/pdf`, use the generic `/api/exports/*` endpoints for progress, SSE updates, and download.

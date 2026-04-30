@@ -1,7 +1,10 @@
 """Patient router (API endpoints)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,12 +48,14 @@ from .schemas import (
     PatientCompleteRegistrationRequest,
     PatientCreateRequest,
     PatientListResponse,
-    PatientProfilePhotoUpdateRequest,
     PatientQuickCreateRequest,
     PatientResponse,
     PatientUpdateRequest,
 )
 from .service import PatientService, is_patient_cpf_unique_violation
+from .storage import PatientStorage
+
+_ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 
 router = APIRouter(
     prefix="/patients",
@@ -74,7 +79,6 @@ def _merged_registered_payload(patient, data: PatientUpdateRequest) -> dict:
         "first_session_date": update_data.get("first_session_date", patient.first_session_date),
         "guardian_name": update_data.get("guardian_name", patient.guardian_name),
         "guardian_phone": update_data.get("guardian_phone", patient.guardian_phone),
-        "profile_photo_url": update_data.get("profile_photo_url", patient.profile_photo_url),
         "initial_record": update_data.get("initial_record", patient.initial_record),
     }
 
@@ -276,26 +280,73 @@ async def complete_patient_registration(
 @router.patch(
     "/{patient_id}/profile-photo",
     response_model=PatientResponse,
-    summary="Update patient profile photo",
+    summary="Upload patient profile photo",
     description=PROFILE_PHOTO_DESCRIPTION,
-    response_description="The patient after the profile photo URL is updated.",
+    response_description="The patient after the profile photo is stored and linked.",
     responses={**PATIENT_RESPONSE_DOC, **PATIENT_PROFILE_PHOTO_RESPONSES},
 )
 async def update_patient_profile_photo(
     patient_id: int,
-    data: PatientProfilePhotoUpdateRequest,
+    file: Annotated[
+        UploadFile,
+        File(description="Profile photo image file. Accepted formats: JPEG, PNG, WebP."),
+    ],
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Update patient profile photo URL."""
+    """Upload and store a patient profile photo."""
+    if file.content_type not in _ALLOWED_PHOTO_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Profile photo must be a JPEG, PNG, or WebP image.",
+        )
     patient = await PatientService.require_patient(session, patient_id)
-    updated = await PatientService.update_profile_photo(
-        session,
-        patient,
-        str(data.profile_photo_url) if data.profile_photo_url is not None else None,
-    )
+    file_data = await file.read()
+    updated = await PatientService.update_profile_photo(session, patient, file_data, file.content_type or "image/jpeg")
     await session.commit()
     await session.refresh(updated)
     return PatientResponse.model_validate(updated)
+
+
+@router.get(
+    "/{patient_id}/profile-photo",
+    summary="Download patient profile photo",
+    description=(
+        "Serve or redirect to the stored profile photo for a patient. "
+        "For local storage the response is a direct binary download. "
+        "For S3-compatible storage the API returns a 307 redirect to a presigned URL. "
+        "Returns 404 when no photo has been uploaded."
+    ),
+    response_description="Binary image download or temporary redirect to presigned URL.",
+    responses={
+        200: {"description": "Binary image file."},
+        307: {"description": "Temporary redirect to a presigned S3 URL."},
+        404: {"description": "No profile photo found for this patient."},
+    },
+)
+async def get_patient_profile_photo(
+    patient_id: int,
+    session: AsyncSession = Depends(get_tenant_db_session),
+):
+    """Serve the patient profile photo or redirect to its presigned URL."""
+    patient = await PatientService.require_patient(session, patient_id)
+    photo_ref = patient.profile_photo_url
+
+    if not photo_ref:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No profile photo found for this patient.")
+
+    if photo_ref.startswith(("http://", "https://")):
+        return RedirectResponse(photo_ref, status_code=307)
+
+    try:
+        download = PatientStorage().resolve_profile_photo_download(photo_ref)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile photo file not found.") from exc
+
+    if download.path is not None:
+        return FileResponse(path=download.path, media_type=download.content_type, filename=download.filename)
+    if download.url is not None:
+        return RedirectResponse(download.url, status_code=307)
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile photo could not be resolved.")
 
 
 @router.delete(
