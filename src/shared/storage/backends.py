@@ -1,6 +1,7 @@
 """Shared storage backend abstractions."""
 
-from dataclasses import dataclass
+from collections.abc import Iterator
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -28,7 +29,7 @@ class StorageDownload:
     content_type: str
     path: Path | None = None
     url: str | None = None
-    body: bytes | None = None
+    stream: Iterator[bytes] | None = field(default=None, compare=False, hash=False)
 
 
 class StorageBackend(Protocol):
@@ -191,14 +192,21 @@ class S3StorageBackend:
         filename: str,
         content_type: str,
     ) -> StorageDownload:
-        """Fetch bytes from S3 and return them for direct server-side streaming."""
+        """Stream object bytes from S3 without buffering the full file in memory."""
         key = self._normalize_key(relative_path)
         response = self._get_client().get_object(Bucket=self.bucket_name, Key=key)
-        body = response["Body"].read()
+        streaming_body = response["Body"]
+
+        def _iter() -> Iterator[bytes]:
+            try:
+                yield from streaming_body.iter_chunks(chunk_size=65536)
+            finally:
+                streaming_body.close()
+
         return StorageDownload(
             filename=filename,
             content_type=content_type,
-            body=body,
+            stream=_iter(),
         )
 
 

@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -339,9 +339,9 @@ async def get_patient_profile_photo(
 
     if download.path is not None:
         return FileResponse(path=download.path, media_type=download.content_type, filename=download.filename)
-    if download.body is not None:
-        return Response(
-            content=download.body,
+    if download.stream is not None:
+        return StreamingResponse(
+            download.stream,
             media_type=download.content_type,
             headers={"Content-Disposition": f'inline; filename="{download.filename}"'},
         )

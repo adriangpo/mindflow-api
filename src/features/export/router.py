@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
@@ -138,9 +138,9 @@ async def download_export_file(
             media_type=download.content_type,
             filename=download.filename,
         )
-    if download.body is not None:
-        return Response(
-            content=download.body,
+    if download.stream is not None:
+        return StreamingResponse(
+            download.stream,
             media_type=download.content_type,
             headers={"Content-Disposition": f'attachment; filename="{download.filename}"'},
         )
