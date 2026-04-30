@@ -28,8 +28,7 @@ class ScheduleConfigurationCreateRequest(BaseModel):
     break_between_appointments_minutes: int = Field(..., ge=0)
 
     @model_validator(mode="after")
-    def validate_time_window(self):
-        """Validate start and end times."""
+    def _validate_time_window(self):
         if self.start_time >= self.end_time:
             raise ValueError("start_time must be earlier than end_time")
         return self
@@ -45,8 +44,7 @@ class ScheduleConfigurationUpdateRequest(BaseModel):
     break_between_appointments_minutes: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
-    def validate_time_window_if_provided(self):
-        """Validate start and end times when both are provided."""
+    def _validate_time_window_if_provided(self):
         if self.start_time is not None and self.end_time is not None and self.start_time >= self.end_time:
             raise ValueError("start_time must be earlier than end_time")
         return self
@@ -57,7 +55,6 @@ class ScheduleConfigurationResponse(BaseModel):
 
     id: int
     user_id: int
-    # user_id is the creator/owner reference; configuration semantics are tenant-wide.
     working_days: list[WeekDay]
     start_time: time
     end_time: time

@@ -1,5 +1,6 @@
 """Tests for medical record feature."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -342,7 +343,7 @@ class TestMedicalRecordService:
 
         assert stored_file.filename == f"medical-record-{record.id}.pdf"
         assert stored_file.path.exists()
-        assert stored_file.path.read_bytes().startswith(b"%PDF-1.4")
+        assert stored_file.path.read_bytes().startswith(b"%PDF")
         assert stored_file.relative_path.parts[:3] == ("medical-records", "exports", str(session.info["tenant_id"]))
 
     async def test_export_patient_history_pdf_with_records(self, session, make_user, isolated_storage_root):
@@ -361,7 +362,7 @@ class TestMedicalRecordService:
 
         assert stored_file.filename == f"medical-record-history-patient-{patient.id}.pdf"
         assert stored_file.path.exists()
-        assert stored_file.path.read_bytes().startswith(b"%PDF-1.4")
+        assert stored_file.path.read_bytes().startswith(b"%PDF")
         assert "patients" in stored_file.relative_path.parts
 
     async def test_export_patient_history_pdf_without_records_raises_not_found(self, session, make_user):
@@ -387,7 +388,7 @@ class TestMedicalRecordService:
 
         assert stored_file.filename == "medical-record-history-all-patients.pdf"
         assert stored_file.path.exists()
-        assert stored_file.path.read_bytes().startswith(b"%PDF-1.4")
+        assert stored_file.path.read_bytes().startswith(b"%PDF")
         assert stored_file.relative_path.parts[-2:] == ("all", "medical-record-history-all-patients.pdf")
 
 
@@ -415,11 +416,7 @@ class TestMedicalRecordAPI:
 
         update_response = await client.put(
             f"/api/medical-records/{record_id}",
-            json={
-                "title": "Sessao 01",
-                "content": "Updated consultation notes",
-                "attachments": ["https://example.com/updated.pdf"],
-            },
+            data={"data": json.dumps({"title": "Sessao 01", "content": "Updated consultation notes"})},
         )
         assert update_response.status_code == status.HTTP_200_OK
         assert update_response.json()["title"] == "Sessao 01"
@@ -440,7 +437,7 @@ class TestMedicalRecordAPI:
         assert (
             download_response.headers["content-disposition"] == f'attachment; filename="medical-record-{record_id}.pdf"'
         )
-        assert download_response.content.startswith(b"%PDF-1.4")
+        assert download_response.content.startswith(b"%PDF")
         stored_files = list(isolated_storage_root.rglob("*.pdf"))
         assert len(stored_files) == 1
         assert stored_files[0].name == f"medical-record-{record_id}.pdf"
@@ -460,7 +457,7 @@ class TestMedicalRecordAPI:
         get_response = await client.get("/api/medical-records/999999")
         update_response = await client.put(
             "/api/medical-records/999999",
-            json={"content": "Atualizacao que deve falhar"},
+            data={"data": json.dumps({"content": "Atualizacao que deve falhar"})},
         )
 
         assert get_response.status_code == status.HTTP_404_NOT_FOUND
@@ -492,10 +489,10 @@ class TestMedicalRecordAPI:
 
         assert patient_download_response.status_code == status.HTTP_200_OK
         assert patient_download_response.headers["content-type"].startswith("application/pdf")
-        assert patient_download_response.content.startswith(b"%PDF-1.4")
+        assert patient_download_response.content.startswith(b"%PDF")
         assert all_download_response.status_code == status.HTTP_200_OK
         assert all_download_response.headers["content-type"].startswith("application/pdf")
-        assert all_download_response.content.startswith(b"%PDF-1.4")
+        assert all_download_response.content.startswith(b"%PDF")
         stored_names = sorted(path.name for path in isolated_storage_root.rglob("*.pdf"))
         assert stored_names == [
             "medical-record-history-all-patients.pdf",

@@ -28,7 +28,11 @@ from .schemas import (
 )
 from .service import ScheduleConfigurationService, is_tenant_unique_violation
 
-router = APIRouter(prefix="/schedule-configurations", tags=["Schedule Configuration"])
+router = APIRouter(
+    prefix="/schedule-configurations",
+    tags=["Schedule Configuration"],
+    dependencies=[Depends(require_tenant_membership)],
+)
 
 
 @router.post(
@@ -104,7 +108,6 @@ async def create_schedule_configuration(
 )
 async def list_schedule_configurations(
     pagination: PaginationParams = Depends(),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List schedule configurations in the tenant."""
@@ -140,7 +143,6 @@ async def list_schedule_configurations(
 )
 async def get_schedule_configuration(
     configuration_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get schedule configuration by id."""
@@ -197,7 +199,6 @@ async def get_schedule_configuration(
 async def update_schedule_configuration(
     configuration_id: int,
     data: ScheduleConfigurationUpdateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Update schedule configuration by id."""
@@ -205,7 +206,6 @@ async def update_schedule_configuration(
     if configuration is None:
         raise ScheduleConfigurationNotFound()
 
-    # Re-validate merged state using creation schema to centralize business validation in schemas.
     try:
         ScheduleConfigurationCreateRequest.model_validate(
             {
@@ -261,7 +261,6 @@ async def update_schedule_configuration(
 )
 async def delete_schedule_configuration(
     configuration_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Delete schedule configuration by id."""

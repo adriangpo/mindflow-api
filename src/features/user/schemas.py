@@ -22,14 +22,12 @@ class UserRegisterRequest(BaseModel):
 
     @field_validator("password")
     @classmethod
-    def password_strength(cls, value):
-        """Validate password strength using shared validator."""
+    def _password_strength(cls, value: str) -> str:
         return validate_password_strength(value)
 
     @field_validator("confirm_password")
     @classmethod
-    def passwords_match(cls, value, info):
-        """Validate that password and confirm_password match."""
+    def _passwords_match(cls, value: str, info) -> str:
         if "password" in info.data and value != info.data["password"]:
             raise ValueError("Passwords do not match")
         return value
@@ -51,14 +49,12 @@ class PasswordChangeRequest(BaseModel):
 
     @field_validator("new_password")
     @classmethod
-    def password_strength(cls, value):
-        """Validate password strength using shared validator."""
+    def _password_strength(cls, value: str) -> str:
         return validate_password_strength(value)
 
     @field_validator("confirm_new_password")
     @classmethod
-    def passwords_match(cls, value, info):
-        """Validate that new_password and confirm_new_password match."""
+    def _passwords_match(cls, value: str, info) -> str:
         if "new_password" in info.data and value != info.data["new_password"]:
             raise ValueError("New passwords do not match")
         return value

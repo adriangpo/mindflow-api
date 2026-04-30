@@ -31,21 +31,19 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
     response_model=TokenResponse,
     summary="Authenticate user and issue tokens",
     description=LOGIN_REQUEST_DESCRIPTION,
+    response_description="Access and refresh token pair for the authenticated user.",
     responses=LOGIN_RESPONSES,
 )
 async def login(data: UserLoginRequest, request: Request, session: AsyncSession = Depends(get_db_session)):
     """Authenticate a user and issue a new access/refresh token pair."""
-    # Authenticate user with provided credential (username or email)
     user = await AuthService.authenticate_user(session, data.credential, data.password)
 
     if not user:
         raise InvalidCredentialsException()
 
-    # Get client info for audit
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
 
-    # Create tokens
     tokens = await AuthService.create_tokens(session, user, ip_address, user_agent)
     await session.commit()
 
@@ -58,6 +56,7 @@ async def login(data: UserLoginRequest, request: Request, session: AsyncSession 
     response_model=TokenResponse,
     summary="Rotate tokens using a refresh token",
     description=REFRESH_REQUEST_DESCRIPTION,
+    response_description="New access and refresh token pair.",
     responses=REFRESH_RESPONSES,
 )
 async def refresh_token(data: RefreshTokenRequest, session: AsyncSession = Depends(get_db_session)):
@@ -72,6 +71,7 @@ async def refresh_token(data: RefreshTokenRequest, session: AsyncSession = Depen
     response_model=AuthMessageResponse,
     summary="Revoke one refresh token",
     description=LOGOUT_REQUEST_DESCRIPTION,
+    response_description="Confirmation that the refresh token was revoked.",
     responses=LOGOUT_RESPONSES,
 )
 async def logout(

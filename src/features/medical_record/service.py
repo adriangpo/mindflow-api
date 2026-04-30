@@ -1,6 +1,5 @@
 """Medical record service layer."""
 
-import textwrap
 from datetime import UTC, date, datetime
 
 from sqlalchemy import func, or_, select
@@ -9,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.features.patient.models import Patient
 from src.features.schedule.models import ScheduleAppointment
 from src.shared.pagination.pagination import PaginationParams
+from src.shared.pdf import build_pdf_from_template
 from src.shared.storage import StoredFile
 
 from .exceptions import (
@@ -22,105 +22,26 @@ from .models import MedicalRecord
 from .schemas import MedicalRecordCreateRequest, MedicalRecordUpdateRequest
 from .storage import MedicalRecordStorage
 
-_PDF_LINES_PER_PAGE = 52
-_PDF_LINE_WIDTH = 95
 
-
-def _escape_pdf_text(value: str) -> str:
-    """Escape text for PDF content streams."""
-    escaped = value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
-    return "".join(char if 32 <= ord(char) <= 126 else "?" for char in escaped)
-
-
-def _build_page_stream(lines: list[str]) -> bytes:
-    """Build a PDF text stream for a single page."""
-    commands: list[bytes] = [b"BT", b"/F1 11 Tf", b"40 800 Td"]
-
-    for index, line in enumerate(lines):
-        encoded = f"({_escape_pdf_text(line)}) Tj".encode("latin-1", "replace")
-        if index > 0:
-            commands.append(b"0 -14 Td")
-        commands.append(encoded)
-
-    commands.append(b"ET")
-    return b"\n".join(commands)
-
-
-def _chunk_lines(lines: list[str], chunk_size: int) -> list[list[str]]:
-    """Split lines into pages."""
-    if not lines:
-        return [[""]]
-
-    return [lines[index : index + chunk_size] for index in range(0, len(lines), chunk_size)]
-
-
-def _build_pdf(title: str, body_lines: list[str]) -> bytes:
-    """Build a minimal multi-page PDF document."""
-    lines = [title, "", *body_lines]
-    pages = _chunk_lines(lines, _PDF_LINES_PER_PAGE)
-
-    objects: dict[int, bytes] = {
-        1: b"<< /Type /Catalog /Pages 2 0 R >>",
-        3: b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-    }
-
-    page_object_ids: list[int] = []
-    next_object_id = 4
-
-    for page_lines in pages:
-        page_object_id = next_object_id
-        content_object_id = next_object_id + 1
-        next_object_id += 2
-
-        page_object_ids.append(page_object_id)
-        page_stream = _build_page_stream(page_lines)
-
-        objects[page_object_id] = (
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-            "/Resources << /Font << /F1 3 0 R >> >> "
-            f"/Contents {content_object_id} 0 R >>"
-        ).encode("ascii")
-        objects[content_object_id] = (
-            b"<< /Length " + str(len(page_stream)).encode("ascii") + b" >>\nstream\n" + page_stream + b"\nendstream"
-        )
-
-    kids = " ".join(f"{page_object_id} 0 R" for page_object_id in page_object_ids)
-    objects[2] = f"<< /Type /Pages /Count {len(page_object_ids)} /Kids [ {kids} ] >>".encode("ascii")
-
-    total_objects = next_object_id - 1
-    pdf = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets: dict[int, int] = {}
-
-    for object_id in range(1, total_objects + 1):
-        offsets[object_id] = len(pdf)
-        pdf.extend(f"{object_id} 0 obj\n".encode("ascii"))
-        pdf.extend(objects[object_id])
-        pdf.extend(b"\nendobj\n")
-
-    xref_start = len(pdf)
-    pdf.extend(f"xref\n0 {total_objects + 1}\n".encode("ascii"))
-    pdf.extend(b"0000000000 65535 f \n")
-
-    for object_id in range(1, total_objects + 1):
-        pdf.extend(f"{offsets[object_id]:010d} 00000 n \n".encode("ascii"))
-
-    pdf.extend(f"trailer\n<< /Size {total_objects + 1} /Root 1 0 R >>\n".encode("ascii"))
-    pdf.extend(f"startxref\n{xref_start}\n%%EOF".encode("ascii"))
-
-    return bytes(pdf)
-
-
-def _append_wrapped(lines: list[str], prefix: str, value: str | None) -> None:
-    """Append wrapped key/value content lines for PDF output."""
+def _fmt_datetime(value: datetime | None) -> str:
+    """Format a datetime for template rendering."""
     if value is None:
-        return
+        return ""
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
 
-    wrapped = textwrap.wrap(value, width=_PDF_LINE_WIDTH) or [""]
-    first = wrapped[0]
-    lines.append(f"{prefix}: {first}")
 
-    for continuation in wrapped[1:]:
-        lines.append(f"{prefix} (cont.): {continuation}")
+def _record_context(record: MedicalRecord, patient_name: str) -> dict:
+    """Build template context dict for one medical record."""
+    return {
+        "id": record.id,
+        "patient_name": patient_name,
+        "recorded_at_fmt": _fmt_datetime(record.recorded_at),
+        "title": record.title or "",
+        "content": record.content,
+        "clinical_assessment": record.clinical_assessment or "",
+        "treatment_plan": record.treatment_plan or "",
+        "attachments": record.attachments or [],
+    }
 
 
 class MedicalRecordService:
@@ -305,9 +226,19 @@ class MedicalRecordService:
         session: AsyncSession,
         record: MedicalRecord,
         data: MedicalRecordUpdateRequest,
+        attachment_paths: list[str] | None = None,
     ) -> MedicalRecord:
-        """Update an existing medical record."""
+        """Update an existing medical record.
+
+        When attachment_paths is provided it replaces the attachments field entirely,
+        ignoring any attachments value that may be present in the schema data.
+        """
         updates = data.model_dump(exclude_unset=True)
+
+        if attachment_paths is not None:
+            updates["attachments"] = attachment_paths
+        elif "attachments" in updates:
+            updates["attachments"] = MedicalRecordService._serialize_attachments(updates["attachments"])
 
         target_patient_id = updates.get("patient_id", record.patient_id)
 
@@ -323,9 +254,6 @@ class MedicalRecordService:
             appointment = await MedicalRecordService._require_appointment(session, record.appointment_id)
             if appointment.patient_id != target_patient_id:
                 raise MedicalRecordAppointmentPatientMismatch()
-
-        if "attachments" in updates:
-            updates["attachments"] = MedicalRecordService._serialize_attachments(updates["attachments"])
 
         for key, value in updates.items():
             setattr(record, key, value)
@@ -396,42 +324,29 @@ class MedicalRecordService:
         return dict(result.tuples().all())
 
     @staticmethod
-    def _export_lines_for_record(record: MedicalRecord, patient_name: str) -> list[str]:
-        """Render one medical record into PDF text lines."""
-        lines: list[str] = []
-        lines.append(f"Record ID: {record.id}")
-        lines.append(f"Patient: {patient_name}")
-        lines.append(f"Recorded At: {record.recorded_at.isoformat()}")
-
-        _append_wrapped(lines, "Title", record.title)
-        _append_wrapped(lines, "Content", record.content)
-        _append_wrapped(lines, "Clinical Assessment", record.clinical_assessment)
-        _append_wrapped(lines, "Treatment Plan", record.treatment_plan)
-
-        attachments_value = ", ".join(record.attachments) if record.attachments else "None"
-        _append_wrapped(lines, "Attachments", attachments_value)
-
-        lines.append("")
-        return lines
-
-    @staticmethod
     async def export_record_pdf(session: AsyncSession, record_id: int) -> StoredFile:
         """Export a single medical record and store the generated PDF."""
         record = await MedicalRecordService.require_record(session, record_id)
         tenant_id = MedicalRecordService._require_tenant_id(session)
         names = await MedicalRecordService._patient_name_map(session, {record.patient_id})
-        patient_name = names.get(record.patient_id, f"Patient #{record.patient_id}")
+        patient_name = names.get(record.patient_id, f"Paciente #{record.patient_id}")
 
-        lines = MedicalRecordService._export_lines_for_record(record, patient_name)
-        pdf_bytes = _build_pdf("Medical Record Export - Single Consultation", lines)
+        context = {
+            "report_title": "Exportação de Prontuário",
+            "header_subtitle": f"Consulta Individual — {patient_name}",
+            "patient_name": patient_name,
+            "records": [_record_context(record, patient_name)],
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        pdf_bytes = build_pdf_from_template("medical_record_export.html", context)
         return MedicalRecordStorage().store_single_record_export(tenant_id, record.id, pdf_bytes)
 
     @staticmethod
     async def export_patient_history_pdf(session: AsyncSession, patient_id: int) -> StoredFile:
         """Export all records of one patient and store the generated PDF."""
         patient = await MedicalRecordService._require_patient(session, patient_id)
-
         tenant_id = MedicalRecordService._require_tenant_id(session)
+
         stmt = (
             select(MedicalRecord)
             .where(
@@ -446,11 +361,14 @@ class MedicalRecordService:
         if not records:
             raise MedicalRecordExportEmpty()
 
-        lines: list[str] = []
-        for record in records:
-            lines.extend(MedicalRecordService._export_lines_for_record(record, patient.full_name))
-
-        pdf_bytes = _build_pdf(f"Medical Record History Export - {patient.full_name}", lines)
+        context = {
+            "report_title": "Histórico de Prontuários",
+            "header_subtitle": patient.full_name,
+            "patient_name": patient.full_name,
+            "records": [_record_context(r, patient.full_name) for r in records],
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        pdf_bytes = build_pdf_from_template("medical_record_export.html", context)
         return MedicalRecordStorage().store_patient_history_export(tenant_id, patient_id, pdf_bytes)
 
     @staticmethod
@@ -468,12 +386,14 @@ class MedicalRecordService:
         if not records:
             raise MedicalRecordExportEmpty()
 
-        names = await MedicalRecordService._patient_name_map(session, {record.patient_id for record in records})
+        names = await MedicalRecordService._patient_name_map(session, {r.patient_id for r in records})
 
-        lines: list[str] = []
-        for record in records:
-            patient_name = names.get(record.patient_id, f"Patient #{record.patient_id}")
-            lines.extend(MedicalRecordService._export_lines_for_record(record, patient_name))
-
-        pdf_bytes = _build_pdf("Medical Record History Export - All Patients", lines)
+        context = {
+            "report_title": "Exportação de Prontuários — Todos os Pacientes",
+            "header_subtitle": "Histórico Completo de Registros",
+            "patient_name": None,
+            "records": [_record_context(r, names.get(r.patient_id, f"Paciente #{r.patient_id}")) for r in records],
+            "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
+        }
+        pdf_bytes = build_pdf_from_template("medical_record_export.html", context)
         return MedicalRecordStorage().store_all_records_export(tenant_id, pdf_bytes)

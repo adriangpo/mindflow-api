@@ -42,7 +42,6 @@ from src.shared.tenancy.tenant_middleware import TenantMiddleware
 
 logger = logging.getLogger(__name__)
 
-# Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -59,9 +58,8 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Probe result returned by the health endpoint.", examples=["healthy"])
 
 
-async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
+async def rate_limit_handler(_request: Request, _exc: Exception) -> JSONResponse:
     """Handle rate limit exceeded errors."""
-    _ = request, exc
     return JSONResponse(
         status_code=429,
         content={"detail": "Rate limit exceeded"},
@@ -71,7 +69,6 @@ async def rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Handle startup and shutdown events."""
-    # Startup
     await init_db()
     await init_redis()
     export_worker_task: Task[None] | None = None
@@ -95,7 +92,6 @@ async def lifespan(_: FastAPI):
         notification_runtime_task.cancel()
         with suppress(CancelledError):
             await notification_runtime_task
-    # Shutdown
     await close_redis()
     await close_db()
 
@@ -173,8 +169,6 @@ class CustomFastAPI(FastAPI):
         return self.openapi_schema
 
 
-# Admin-only API documentation
-# Routes are protected by admin_docs_middleware
 app = CustomFastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -184,15 +178,12 @@ app = CustomFastAPI(
     openapi_url="/openapi.json",
 )
 
-# Add rate limiting middleware
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 app.add_middleware(SlowAPIMiddleware)
 
-# Add admin-only documentation middleware
 app.middleware("http")(admin_docs_middleware)
 
-# Configure CORS middleware with environment-aware settings
 try:
     cors_config = settings.get_cors_configuration()
     cors_config.log_configuration()
@@ -211,13 +202,9 @@ except CORSConfigurationError as exc:
     logger.error("CORS configuration error: %s", exc)
     raise
 
-# Add tenant middleware for multi-tenancy support
 app.add_middleware(TenantMiddleware)
 app.add_middleware(AuditContextMiddleware)
 
-# Router Registration
-
-# Public routers - accessible without X-Tenant-ID header
 public_routers: list[APIRouter] = [
     auth_router,
     user_router,
@@ -226,7 +213,6 @@ public_routers: list[APIRouter] = [
     notification_internal_router,
 ]
 
-# Tenant-protected routers - require X-Tenant-ID header
 tenant_routers: list[APIRouter] = [
     export_router,
     finance_router,
@@ -238,11 +224,9 @@ tenant_routers: list[APIRouter] = [
 ]
 
 
-# Register public routers (no tenant requirement)
 for router in public_routers:
     app.include_router(router, prefix=settings.api_prefix)
 
-# Register tenant-protected routers (require X-Tenant-ID header)
 for router in tenant_routers:
     app.include_router(
         router,

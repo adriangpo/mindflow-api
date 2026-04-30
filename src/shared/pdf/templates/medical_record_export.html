@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #2d3748; background: #fff; }
+
+  .header {
+    background: linear-gradient(135deg, #1a4f7a 0%, #2c7dbf 100%);
+    color: white;
+    padding: 24px 32px;
+  }
+  .header-title { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+  .header-subtitle { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+  .header-meta {
+    margin-top: 10px;
+    font-size: 10px;
+    opacity: 0.75;
+    border-top: 1px solid rgba(255,255,255,0.3);
+    padding-top: 8px;
+  }
+
+  .body { padding: 20px 32px; }
+
+  .patient-info-bar {
+    background: #ebf5fb;
+    border: 1px solid #c3ddf0;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    display: table;
+    width: 100%;
+  }
+  .patient-info-bar-cell { display: table-cell; vertical-align: middle; }
+  .patient-info-bar-cell:last-child { text-align: right; }
+  .patient-name { font-size: 13px; font-weight: 700; color: #1a4f7a; }
+  .patient-sub { font-size: 10px; color: #4a5568; margin-top: 2px; }
+
+  .section { margin-bottom: 22px; }
+  .section-header {
+    background: #2c7dbf;
+    color: white;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    margin-bottom: 12px;
+  }
+
+  .record-card {
+    border: 1px solid #dce8f3;
+    border-radius: 4px;
+    margin-bottom: 14px;
+    overflow: hidden;
+    page-break-inside: avoid;
+  }
+  .record-card-header {
+    background: #ebf5fb;
+    padding: 9px 14px;
+    border-bottom: 1px solid #dce8f3;
+    display: table;
+    width: 100%;
+  }
+  .record-card-header-left { display: table-cell; vertical-align: middle; }
+  .record-card-header-right { display: table-cell; text-align: right; vertical-align: middle; }
+  .record-card-id { font-size: 9px; color: #718096; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+  .record-card-title { font-size: 12px; font-weight: 700; color: #1a4f7a; margin-top: 2px; }
+  .record-card-date { font-size: 10px; color: #4a5568; font-weight: 600; }
+  .record-card-patient { font-size: 9.5px; color: #718096; margin-top: 2px; }
+
+  .record-card-body { padding: 12px 14px; }
+  .record-field { margin-bottom: 10px; }
+  .record-field:last-child { margin-bottom: 0; }
+  .record-field-label {
+    font-size: 8.5px;
+    color: #718096;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 700;
+    margin-bottom: 4px;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 3px;
+  }
+  .record-field-value {
+    font-size: 10.5px;
+    color: #2d3748;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .record-field-value-none { color: #a0aec0; font-style: italic; font-size: 10px; }
+
+  .attachments-list { list-style: none; }
+  .attachments-list li {
+    padding: 3px 0;
+    font-size: 10px;
+    color: #2b6cb0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .attachments-list li:last-child { border-bottom: none; }
+
+  .no-data {
+    color: #a0aec0;
+    font-style: italic;
+    text-align: center;
+    padding: 18px;
+    font-size: 10.5px;
+    border: 1px dashed #e2e8f0;
+    border-radius: 4px;
+  }
+
+  .divider { border: none; border-top: 2px solid #e2e8f0; margin: 20px 0; }
+
+  .footer {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    font-size: 9px;
+    color: #a0aec0;
+  }
+
+  @page { margin: 15mm 18mm; size: A4 portrait; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">{{ report_title }}</div>
+  <div class="header-subtitle">{{ header_subtitle }}</div>
+  <div class="header-meta">Gerado em {{ generated_at }} &nbsp;|&nbsp; {{ records|length }} registro{% if records|length != 1 %}s{% endif %} incluído{% if records|length != 1 %}s{% endif %}</div>
+</div>
+
+<div class="body">
+
+  {% if patient_name %}
+  <div class="patient-info-bar">
+    <div class="patient-info-bar-cell">
+      <div class="patient-name">{{ patient_name }}</div>
+      <div class="patient-sub">Paciente</div>
+    </div>
+    <div class="patient-info-bar-cell">
+      <div class="patient-sub">Total de registros: {{ records|length }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if records %}
+    {% for rec in records %}
+    <div class="record-card">
+      <div class="record-card-header">
+        <div class="record-card-header-left">
+          <div class="record-card-id">Prontuário #{{ rec.id }}</div>
+          <div class="record-card-title">{% if rec.title %}{{ rec.title }}{% else %}Nota de Consulta{% endif %}</div>
+          {% if not patient_name and rec.patient_name %}
+          <div class="record-card-patient">{{ rec.patient_name }}</div>
+          {% endif %}
+        </div>
+        <div class="record-card-header-right">
+          <div class="record-card-date">{{ rec.recorded_at_fmt }}</div>
+        </div>
+      </div>
+      <div class="record-card-body">
+
+        <div class="record-field">
+          <div class="record-field-label">Conteúdo</div>
+          <div class="record-field-value">{{ rec.content }}</div>
+        </div>
+
+        {% if rec.clinical_assessment %}
+        <div class="record-field">
+          <div class="record-field-label">Avaliação Clínica</div>
+          <div class="record-field-value">{{ rec.clinical_assessment }}</div>
+        </div>
+        {% endif %}
+
+        {% if rec.treatment_plan %}
+        <div class="record-field">
+          <div class="record-field-label">Plano de Tratamento</div>
+          <div class="record-field-value">{{ rec.treatment_plan }}</div>
+        </div>
+        {% endif %}
+
+        {% if rec.attachments %}
+        <div class="record-field">
+          <div class="record-field-label">Anexos ({{ rec.attachments|length }})</div>
+          <ul class="attachments-list">
+            {% for att in rec.attachments %}
+            <li>{{ att }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="no-data">Nenhum prontuário encontrado para este relatório.</div>
+  {% endif %}
+
+</div>
+
+<div class="footer">
+  Este documento é confidencial e destinado exclusivamente ao uso clínico. &nbsp;&bull;&nbsp; Mindflow &nbsp;&bull;&nbsp; Gerado em {{ generated_at }}
+</div>
+
+</body>
+</html>

@@ -51,26 +51,18 @@ pwd_hasher = PasswordHash.recommended()
 
 
 class User(Base, TimestampMixin, AuditableMixin):
-    """User model for authentication and authorization.
-
-    Globally-scoped model: users are independent of tenants.
-    Users can have access to multiple tenants via tenant-user assignments.
-    """
+    """Globally-scoped user for authentication and authorization across tenants."""
 
     __tablename__ = "users"
 
-    # Primary key
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # Identity (globally unique)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
     username: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Authentication
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # Authorization
     roles: Mapped[list[str]] = mapped_column(
         ARRAY(String),
         nullable=False,
@@ -90,7 +82,6 @@ class User(Base, TimestampMixin, AuditableMixin):
         server_default="{}",
     )
 
-    # Status
     status: Mapped[str] = mapped_column(
         Enum(UserStatus, native_enum=False, length=50),
         nullable=False,
@@ -100,7 +91,6 @@ class User(Base, TimestampMixin, AuditableMixin):
     )
     is_logged_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
-    # Audit
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

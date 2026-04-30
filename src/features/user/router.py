@@ -7,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_db_session
 from src.features.auth.dependencies import get_current_active_user, require_role
+from src.features.tenant.schemas import TenantSummaryResponse
+from src.features.tenant.service import TenantService
 from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
@@ -21,6 +23,7 @@ from .openapi import (
     COMMON_ADMIN_RESPONSES,
     COMMON_AUTH_RESPONSES,
     CURRENT_USER_EXAMPLE,
+    MY_TENANTS_EXAMPLE,
     UPDATED_USER_EXAMPLE,
     USER_LIST_EXAMPLE,
     USER_REGISTER_EXAMPLE,
@@ -118,6 +121,34 @@ async def change_password(
     await UserService.change_password(current_user, data.current_password, data.new_password)
     await session.commit()
     return {"message": "Password changed successfully"}
+
+
+@router.get(
+    "/me/tenants",
+    response_model=list[TenantSummaryResponse],
+    summary="List tenants the current user has access to",
+    description=(
+        "Return active tenants accessible to the authenticated user. "
+        "Users with the `admin` role receive every active tenant on the platform. "
+        "All other users receive only the active tenants listed in their `tenant_ids`."
+    ),
+    response_description="List of accessible tenants with id, name, and slug.",
+    responses={
+        **COMMON_AUTH_RESPONSES,
+        200: json_response("Accessible tenant list.", MY_TENANTS_EXAMPLE),
+    },
+)
+async def get_my_tenants(
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Return tenants the current user can access."""
+    tenants = await TenantService.get_accessible_tenants(
+        session,
+        current_user.tenant_ids,
+        is_admin=current_user.has_role(UserRole.ADMIN),
+    )
+    return [TenantSummaryResponse.model_validate(t) for t in tenants]
 
 
 # Admin endpoints
@@ -404,3 +435,36 @@ async def deactivate_user(
 
     logger.info("User deactivated by admin %s: %s", current_user.username, user_id)
     return {"message": "User deactivated successfully"}
+
+
+@router.post(
+    "/{user_id}/reactivate",
+    response_model=UserActionMessageResponse,
+    dependencies=[Depends(require_role(UserRole.ADMIN))],
+    summary="Reactivate a user",
+    description=(
+        "Reactivate a previously deactivated user account by restoring the `active` status. "
+        "The operation is idempotent — calling it on an already-active user has no effect. "
+        "The user must log in again to obtain new tokens."
+    ),
+    response_description="Reactivation confirmation.",
+    responses={
+        **COMMON_ADMIN_RESPONSES,
+        404: {"description": "User not found."},
+        200: json_response("Reactivation confirmation.", {"message": "User reactivated successfully"}),
+    },
+)
+async def reactivate_user(
+    user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """Reactivate the target user account."""
+    success = await UserService.reactivate_user(session, user_id)
+    await session.commit()
+
+    if not success:
+        raise UserNotFound()
+
+    logger.info("User reactivated by admin %s: %s", current_user.username, user_id)
+    return {"message": "User reactivated successfully"}

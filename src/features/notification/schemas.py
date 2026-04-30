@@ -17,13 +17,13 @@ def _validate_phone_number(value: str | None, *, field_name: str) -> str | None:
     if not value.isdigit():
         raise PydanticCustomError(
             "phone_number_digits",
-            f"{field_name} deve conter apenas números",
+            f"{field_name} must contain only digits",
         )
     if len(value) not in PHONE_LENGTHS:
         lengths = ", ".join(str(item) for item in sorted(PHONE_LENGTHS))
         raise PydanticCustomError(
             "phone_number_length",
-            f"{field_name} deve ter {lengths} dígitos",
+            f"{field_name} must have {lengths} digits",
         )
     return value
 
@@ -113,6 +113,8 @@ class NotificationPatientPreferenceResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    model_config = {"from_attributes": True}
+
 
 class NotificationUserProfileUpsertRequest(BaseModel):
     """Per-user notification profile upsert request."""
@@ -136,7 +138,7 @@ class NotificationUserProfileUpsertRequest(BaseModel):
         ):
             raise PydanticCustomError(
                 "contact_phone_required",
-                "contact_phone é obrigatório quando o envio de notificações está habilitado",
+                "contact_phone is required when notification delivery is enabled",
             )
         return self
 
@@ -152,6 +154,8 @@ class NotificationUserProfileResponse(BaseModel):
     has_profile: bool
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class NotificationMessageResponse(BaseModel):

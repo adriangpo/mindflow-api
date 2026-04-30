@@ -56,6 +56,7 @@ from .service import ScheduleService
 router = APIRouter(
     prefix="/schedule",
     tags=["Schedule Management"],
+    dependencies=[Depends(require_tenant_membership)],
 )
 
 
@@ -111,15 +112,39 @@ async def create_appointment(
 )
 async def list_appointments(
     pagination: PaginationParams = Depends(),
-    view: ScheduleCalendarView = Query(default=ScheduleCalendarView.DAY),
-    reference_date: date | None = Query(default=None),
-    start_date: date | None = Query(default=None),
-    end_date: date | None = Query(default=None),
-    patient_id: int | None = Query(default=None, gt=0),
-    statuses: list[AppointmentStatus] | None = Query(default=None),
-    payment_statuses: list[PaymentStatus] | None = Query(default=None),
-    include_deleted: bool = Query(default=False),
-    _: User = Depends(require_tenant_membership),
+    view: ScheduleCalendarView = Query(
+        default=ScheduleCalendarView.DAY,
+        description="Calendar window for the query: `day`, `week`, `month`, `year`, or `total`.",
+    ),
+    reference_date: date | None = Query(
+        default=None,
+        description="Reference date for the selected calendar window. Defaults to current UTC date.",
+    ),
+    start_date: date | None = Query(
+        default=None,
+        description="Inclusive start date override. Used together with `end_date` for custom range queries.",
+    ),
+    end_date: date | None = Query(
+        default=None,
+        description="Inclusive end date override. Used together with `start_date` for custom range queries.",
+    ),
+    patient_id: int | None = Query(
+        default=None,
+        gt=0,
+        description="Filter appointments for one specific patient.",
+    ),
+    statuses: list[AppointmentStatus] | None = Query(
+        default=None,
+        description="Filter by one or more appointment consultation statuses.",
+    ),
+    payment_statuses: list[PaymentStatus] | None = Query(
+        default=None,
+        description="Filter by one or more payment statuses.",
+    ),
+    include_deleted: bool = Query(
+        default=False,
+        description="When true, includes soft-deleted appointments in the result.",
+    ),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List tenant appointments using overlap-based calendar filtering."""
@@ -153,8 +178,10 @@ async def list_appointments(
 )
 async def get_appointment_detail(
     appointment_id: int,
-    include_deleted: bool = Query(default=False),
-    _: User = Depends(require_tenant_membership),
+    include_deleted: bool = Query(
+        default=False,
+        description="When true, returns the appointment even if it has been soft-deleted.",
+    ),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get an appointment and its timeline history."""
@@ -270,7 +297,6 @@ async def delete_appointment(
     responses=DEFAULTS_RESPONSES,
 )
 async def get_schedule_defaults(
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Get the tenant's default scheduling values."""
@@ -297,10 +323,20 @@ async def get_schedule_defaults(
     responses=AVAILABILITY_RESPONSES,
 )
 async def get_schedule_availability(
-    target_date: date = Query(...),
-    slot_duration_minutes: int | None = Query(default=None, gt=0),
-    break_between_appointments_minutes: int | None = Query(default=None, ge=0),
-    _: User = Depends(require_tenant_membership),
+    target_date: date = Query(
+        ...,
+        description="Date to compute available slots for.",
+    ),
+    slot_duration_minutes: int | None = Query(
+        default=None,
+        gt=0,
+        description="Slot duration in minutes. Defaults to the tenant schedule configuration value.",
+    ),
+    break_between_appointments_minutes: int | None = Query(
+        default=None,
+        ge=0,
+        description="Break between slots in minutes. Defaults to the tenant schedule configuration value.",
+    ),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Calculate the open slots for one date."""

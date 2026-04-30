@@ -1,25 +1,16 @@
 """Finance schemas (DTOs)."""
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
+from src.shared.schema_utils import _normalize_text
+
 MAX_DESCRIPTION_LENGTH = 255
 MAX_NOTES_LENGTH = 5000
 MAX_REVERSAL_REASON_LENGTH = 500
-
-
-def _normalize_text(value: str | None, *, field_name: str) -> str | None:
-    """Normalize optional text fields and reject blank values when provided."""
-    if value is None:
-        return None
-
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{field_name} cannot be blank")
-    return normalized
 
 
 class FinancialEntryType(StrEnum):
@@ -130,8 +121,3 @@ class FinanceReportResponse(BaseModel):
     paid_appointments_count: int
     manual_income_count: int
     manual_expense_count: int
-
-
-def default_reference_date() -> date:
-    """Return current UTC date for default finance listing/reporting."""
-    return datetime.now(UTC).date()

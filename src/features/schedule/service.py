@@ -15,7 +15,6 @@ from src.shared.pagination.pagination import PaginationParams
 
 from .exceptions import (
     ScheduleAppointmentAlreadyDeleted,
-    ScheduleAppointmentInPast,
     ScheduleAppointmentNotFound,
     ScheduleConfigurationRequired,
     ScheduleCustomRangeRequired,
@@ -425,9 +424,6 @@ class ScheduleService:
         if ends_at <= starts_at:
             raise ScheduleInvalidTimeWindow()
 
-        if starts_at <= datetime.now(UTC):
-            raise ScheduleAppointmentInPast()
-
         if await ScheduleService._has_slot_conflict(session, starts_at, ends_at):
             raise ScheduleSlotUnavailable()
 
@@ -611,9 +607,6 @@ class ScheduleService:
 
         if ends_at <= starts_at:
             raise ScheduleInvalidTimeWindow()
-
-        if time_changed and starts_at <= datetime.now(UTC):
-            raise ScheduleAppointmentInPast()
 
         current_status = AppointmentStatus(appointment.status)
         if time_changed and current_status in _TERMINAL_APPOINTMENT_STATUSES:

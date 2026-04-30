@@ -394,7 +394,7 @@ class TestPatientAPI:
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    async def test_update_profile_photo_success(self, auth_client):
+    async def test_update_profile_photo_success(self, auth_client, isolated_storage_root):
         client, user = auth_client
         user.tenant_ids = [_tenant_id_from_client(client)]
 
@@ -406,11 +406,13 @@ class TestPatientAPI:
 
         response = await client.patch(
             f"/api/patients/{patient_id}/profile-photo",
-            json={"profile_photo_url": "https://example.com/patient-photo.jpg"},
+            files={"file": ("photo.jpg", b"\xff\xd8\xff" + b"\x00" * 100, "image/jpeg")},
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["profile_photo_url"] == "https://example.com/patient-photo.jpg"
+        photo_url = response.json()["profile_photo_url"]
+        assert photo_url is not None
+        assert "profile-photo" in photo_url
 
     async def test_reactivate_patient_success(self, auth_client):
         client, user = auth_client
@@ -449,6 +451,6 @@ class TestPatientAPI:
         download_response = await client.get(f"/api/exports/{export_response.json()['id']}/download")
         assert download_response.status_code == status.HTTP_200_OK
         assert download_response.headers["content-type"].startswith("application/pdf")
-        assert download_response.content.startswith(b"%PDF-1.4")
+        assert download_response.content.startswith(b"%PDF")
         stored_files = list(isolated_storage_root.rglob("*.pdf"))
         assert stored_files

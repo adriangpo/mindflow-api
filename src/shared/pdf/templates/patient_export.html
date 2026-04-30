@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #2d3748; background: #fff; }
+
+  .header {
+    background: linear-gradient(135deg, #1a4f7a 0%, #2c7dbf 100%);
+    color: white;
+    padding: 24px 32px;
+    margin-bottom: 0;
+  }
+  .header-title { font-size: 22px; font-weight: 700; letter-spacing: 0.5px; }
+  .header-subtitle { font-size: 12px; opacity: 0.85; margin-top: 4px; }
+  .header-meta {
+    margin-top: 10px;
+    font-size: 10px;
+    opacity: 0.75;
+    border-top: 1px solid rgba(255,255,255,0.3);
+    padding-top: 8px;
+  }
+
+  .body { padding: 20px 32px; }
+
+  .section { margin-bottom: 22px; }
+  .section-header {
+    background: #2c7dbf;
+    color: white;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    margin-bottom: 10px;
+  }
+
+  .info-grid {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .info-row { display: table-row; }
+  .info-cell {
+    display: table-cell;
+    width: 50%;
+    padding: 5px 10px 5px 0;
+    vertical-align: top;
+  }
+  .info-block {
+    background: #f7fafc;
+    border-left: 3px solid #2c7dbf;
+    padding: 6px 10px;
+    margin-right: 8px;
+  }
+  .info-label {
+    font-size: 8.5px;
+    color: #718096;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .info-value {
+    font-size: 11px;
+    color: #2d3748;
+    font-weight: 600;
+    margin-top: 2px;
+    word-break: break-word;
+  }
+  .info-value-none { color: #a0aec0; font-style: italic; font-weight: 400; }
+
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+  }
+  table.data-table thead tr th {
+    background: #ebf5fb;
+    color: #1a4f7a;
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 7px 9px;
+    border: 1px solid #c3ddf0;
+    text-align: left;
+  }
+  table.data-table tbody tr td {
+    padding: 6px 9px;
+    border: 1px solid #dce8f3;
+    vertical-align: top;
+    color: #2d3748;
+  }
+  table.data-table tbody tr:nth-child(even) td { background: #f7fafc; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 8.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge-completed, .badge-paid { background: #c6f6d5; color: #22543d; }
+  .badge-scheduled, .badge-pending { background: #bee3f8; color: #1a365d; }
+  .badge-cancelled, .badge-no-show { background: #fed7d7; color: #742a2a; }
+  .badge-default { background: #e2e8f0; color: #4a5568; }
+
+  .record-card {
+    border: 1px solid #dce8f3;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .record-card-header {
+    background: #ebf5fb;
+    padding: 8px 12px;
+    border-bottom: 1px solid #dce8f3;
+    display: table;
+    width: 100%;
+  }
+  .record-card-header-left { display: table-cell; vertical-align: middle; }
+  .record-card-header-right { display: table-cell; text-align: right; vertical-align: middle; }
+  .record-card-title { font-size: 11px; font-weight: 700; color: #1a4f7a; }
+  .record-card-date { font-size: 9.5px; color: #718096; }
+  .record-card-body { padding: 10px 12px; }
+  .record-field { margin-bottom: 8px; }
+  .record-field-label {
+    font-size: 8.5px;
+    color: #718096;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .record-field-value {
+    font-size: 10.5px;
+    color: #2d3748;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .record-field-value-none { color: #a0aec0; font-style: italic; }
+
+  .billing-box {
+    background: #f7fafc;
+    border: 1px solid #dce8f3;
+    border-radius: 4px;
+    padding: 14px 16px;
+  }
+  .billing-row {
+    display: table;
+    width: 100%;
+    padding: 5px 0;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  .billing-row:last-child { border-bottom: none; }
+  .billing-label { display: table-cell; color: #4a5568; font-size: 11px; }
+  .billing-amount { display: table-cell; text-align: right; font-weight: 700; font-size: 11px; color: #2d3748; }
+  .billing-total .billing-label { color: #1a4f7a; font-size: 12px; font-weight: 700; }
+  .billing-total .billing-amount { color: #1a4f7a; font-size: 13px; }
+
+  .no-data {
+    color: #a0aec0;
+    font-style: italic;
+    text-align: center;
+    padding: 14px;
+    font-size: 10.5px;
+  }
+
+  .footer {
+    margin-top: 28px;
+    padding-top: 10px;
+    border-top: 1px solid #e2e8f0;
+    text-align: center;
+    font-size: 9px;
+    color: #a0aec0;
+  }
+
+  @page { margin: 15mm 18mm; size: A4 portrait; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-title">Prontuário Completo do Paciente</div>
+  <div class="header-subtitle">{{ patient.full_name }}</div>
+  <div class="header-meta">Gerado em {{ generated_at }} &nbsp;|&nbsp; ID do Registro: {{ patient.id }}</div>
+</div>
+
+<div class="body">
+
+  <div class="section">
+    <div class="section-header">Perfil do Paciente</div>
+    <div class="info-grid">
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Nome Completo</div>
+            <div class="info-value">{{ patient.full_name }}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Data de Nascimento</div>
+            <div class="info-value">{% if patient.birth_date %}{{ patient.birth_date }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">CPF</div>
+            <div class="info-value">{% if patient.cpf %}{{ patient.cpf[:3] }}.{{ patient.cpf[3:6] }}.{{ patient.cpf[6:9] }}-{{ patient.cpf[9:] }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Telefone</div>
+            <div class="info-value">{% if patient.phone_number %}{{ patient.phone_number }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">CEP</div>
+            <div class="info-value">{% if patient.cep %}{{ patient.cep[:5] }}-{{ patient.cep[5:] }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Frequência das Sessões</div>
+            <div class="info-value">{% if patient.session_frequency %}{{ patient.session_frequency }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+      </div>
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Valor da Sessão</div>
+            <div class="info-value">{% if patient.session_price %}R$ {{ "%.2f"|format(patient.session_price|float) }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Data da Primeira Sessão</div>
+            <div class="info-value">{% if patient.first_session_date %}{{ patient.first_session_date }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+      </div>
+      {% if patient.guardian_name or patient.guardian_phone %}
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Nome do Responsável</div>
+            <div class="info-value">{% if patient.guardian_name %}{{ patient.guardian_name }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Telefone do Responsável</div>
+            <div class="info-value">{% if patient.guardian_phone %}{{ patient.guardian_phone }}{% else %}<span class="info-value-none">Não informado</span>{% endif %}</div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+      <div class="info-row">
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Status de Cadastro</div>
+            <div class="info-value">{% if patient.is_registered %}Cadastro Completo{% else %}Cadastro Rápido{% endif %}</div>
+          </div>
+        </div>
+        <div class="info-cell">
+          <div class="info-block">
+            <div class="info-label">Status</div>
+            <div class="info-value">{% if patient.is_active %}Ativo{% else %}Inativo{% endif %}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% if patient.initial_record %}
+    <div style="margin-top:10px;">
+      <div class="info-block">
+        <div class="info-label">Histórico Inicial</div>
+        <div class="info-value" style="margin-top:4px; white-space:pre-wrap; line-height:1.5;">{{ patient.initial_record }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <div class="section-header">Histórico de Consultas ({{ appointments|length }} registro{% if appointments|length != 1 %}s{% endif %})</div>
+    {% if appointments %}
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Data e Hora</th>
+          <th>Modalidade</th>
+          <th>Status</th>
+          <th>Pagamento</th>
+          <th>Valor</th>
+          <th>Pago em</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for appt in appointments %}
+        <tr>
+          <td>{{ appt.starts_at_fmt }}</td>
+          <td>{{ appt.modality|capitalize }}</td>
+          <td>
+            {% set st = appt.status|lower %}
+            {% if st == 'completed' %}<span class="badge badge-completed">Concluída</span>
+            {% elif st == 'scheduled' %}<span class="badge badge-scheduled">Agendada</span>
+            {% elif st == 'cancelled' or st == 'canceled' %}<span class="badge badge-cancelled">Cancelada</span>
+            {% elif st == 'no_show' or st == 'no-show' %}<span class="badge badge-no-show">Não Compareceu</span>
+            {% else %}<span class="badge badge-default">{{ appt.status|capitalize }}</span>{% endif %}
+          </td>
+          <td>
+            {% set ps = appt.payment_status|lower %}
+            {% if ps == 'paid' %}<span class="badge badge-paid">Pago</span>
+            {% elif ps == 'pending' %}<span class="badge badge-pending">Pendente</span>
+            {% else %}<span class="badge badge-default">{{ appt.payment_status|capitalize }}</span>{% endif %}
+          </td>
+          <td>R$ {{ "%.2f"|format(appt.charge_amount|float) }}</td>
+          <td>{% if appt.paid_at_fmt %}{{ appt.paid_at_fmt }}{% else %}&mdash;{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="no-data">Nenhuma consulta registrada para este paciente.</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <div class="section-header">Histórico de Prontuários ({{ records|length }} registro{% if records|length != 1 %}s{% endif %})</div>
+    {% if records %}
+      {% for rec in records %}
+      <div class="record-card">
+        <div class="record-card-header">
+          <div class="record-card-header-left">
+            <div class="record-card-title">{% if rec.title %}{{ rec.title }}{% else %}Nota de Consulta #{{ rec.id }}{% endif %}</div>
+          </div>
+          <div class="record-card-header-right">
+            <div class="record-card-date">{{ rec.recorded_at_fmt }}</div>
+          </div>
+        </div>
+        <div class="record-card-body">
+          <div class="record-field">
+            <div class="record-field-label">Conteúdo</div>
+            <div class="record-field-value" style="white-space:pre-wrap;">{{ rec.content }}</div>
+          </div>
+          {% if rec.clinical_assessment %}
+          <div class="record-field">
+            <div class="record-field-label">Avaliação Clínica</div>
+            <div class="record-field-value" style="white-space:pre-wrap;">{{ rec.clinical_assessment }}</div>
+          </div>
+          {% endif %}
+          {% if rec.treatment_plan %}
+          <div class="record-field">
+            <div class="record-field-label">Plano de Tratamento</div>
+            <div class="record-field-value" style="white-space:pre-wrap;">{{ rec.treatment_plan }}</div>
+          </div>
+          {% endif %}
+          {% if rec.attachments %}
+          <div class="record-field">
+            <div class="record-field-label">Anexos</div>
+            <div class="record-field-value">{{ rec.attachments|join(', ') }}</div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+    <div class="no-data">Nenhum prontuário encontrado para este paciente.</div>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <div class="section-header">Resumo Financeiro</div>
+    <div class="billing-box">
+      <div class="billing-row">
+        <div class="billing-label">Total de Consultas</div>
+        <div class="billing-amount">{{ billing.total_appointments }}</div>
+      </div>
+      <div class="billing-row">
+        <div class="billing-label">Total Cobrado</div>
+        <div class="billing-amount">R$ {{ "%.2f"|format(billing.total_charged|float) }}</div>
+      </div>
+      <div class="billing-row">
+        <div class="billing-label">Total Recebido</div>
+        <div class="billing-amount">R$ {{ "%.2f"|format(billing.total_paid|float) }}</div>
+      </div>
+      <div class="billing-row billing-total">
+        <div class="billing-label">Saldo Pendente</div>
+        <div class="billing-amount">R$ {{ "%.2f"|format(billing.total_pending|float) }}</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="footer">
+  Este documento é confidencial e destinado exclusivamente ao uso clínico. &nbsp;&bull;&nbsp; Mindflow &nbsp;&bull;&nbsp; Gerado em {{ generated_at }}
+</div>
+
+</body>
+</html>

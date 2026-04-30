@@ -4,28 +4,11 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
+from src.shared.schema_utils import _ensure_timezone_aware, _normalize_text
+
 MAX_TITLE_LENGTH = 255
 MAX_CONTENT_LENGTH = 20000
 MAX_ATTACHMENTS = 20
-
-
-def _ensure_timezone_aware(value: datetime, *, field_name: str) -> datetime:
-    """Ensure datetime values carry timezone information."""
-    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
-        raise ValueError(f"{field_name} must be timezone-aware")
-    return value
-
-
-def _normalize_text(value: str | None, *, field_name: str) -> str | None:
-    """Normalize optional text fields and reject blank values when provided."""
-    if value is None:
-        return None
-
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{field_name} cannot be blank")
-
-    return normalized
 
 
 class MedicalRecordCreateRequest(BaseModel):

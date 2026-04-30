@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.config.settings import settings
 from src.database.dependencies import get_db_session, get_tenant_db_session
 from src.features.auth.dependencies import require_tenant_membership
-from src.features.user.models import User
 from src.shared.pagination.pagination import PaginationParams
 from src.shared.qstash import verify_qstash_request
 from src.shared.redis import commit_with_staged_redis
@@ -42,6 +41,7 @@ from .service import NotificationService
 router = APIRouter(
     prefix="/notifications",
     tags=["Notifications"],
+    dependencies=[Depends(require_tenant_membership)],
 )
 
 internal_router = APIRouter(
@@ -63,7 +63,6 @@ internal_router = APIRouter(
     responses=tenant_access_responses(),
 )
 async def get_notification_settings(
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Return the tenant's effective notification settings."""
@@ -86,7 +85,6 @@ async def get_notification_settings(
 )
 async def update_notification_settings(
     data: NotificationSettingsUpdateRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create or update the tenant's notification settings."""
@@ -111,7 +109,6 @@ async def update_notification_settings(
 )
 async def get_patient_notification_preference(
     patient_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Return the effective notification settings for one patient."""
@@ -135,7 +132,6 @@ async def get_patient_notification_preference(
 async def upsert_patient_notification_preference(
     patient_id: int,
     data: NotificationPatientPreferenceUpsertRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create or update one patient's notification settings."""
@@ -165,7 +161,6 @@ async def upsert_patient_notification_preference(
 )
 async def get_user_notification_profile(
     user_id: int,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Return the notification profile for one tenant user."""
@@ -194,7 +189,6 @@ async def get_user_notification_profile(
 async def upsert_user_notification_profile(
     user_id: int,
     data: NotificationUserProfileUpsertRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Create or update a tenant user's notification profile."""
@@ -246,7 +240,6 @@ async def list_notification_messages(
         gt=0,
         description="Filter messages delivered to one user id.",
     ),
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """List notification messages and delivery attempts."""
@@ -283,7 +276,6 @@ async def list_notification_messages(
 )
 async def dispatch_due_notifications(
     data: NotificationDispatchRequest,
-    _: User = Depends(require_tenant_membership),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Dispatch overdue pending notifications for the current tenant."""

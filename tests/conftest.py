@@ -92,6 +92,16 @@ os.environ["TESTING"] = "true"
 os.environ["POSTGRES_URL"] = _resolve_test_db_url()
 os.environ["REDIS_URL"] = _resolve_test_redis_url()
 
+# Stub weasyprint before app import so tests run without GTK system libraries.
+import sys
+import types
+from unittest.mock import MagicMock
+
+if "weasyprint" not in sys.modules:
+    _wp_stub = types.ModuleType("weasyprint")
+    _wp_stub.HTML = MagicMock(return_value=MagicMock(write_pdf=MagicMock(return_value=b"%PDF-1.7 stub")))
+    sys.modules["weasyprint"] = _wp_stub
+
 from src.config.settings import settings
 from src.database import client as db_module
 from src.database.client import set_tenant_context

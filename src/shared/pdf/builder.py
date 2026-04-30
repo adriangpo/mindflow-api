@@ -1,9 +1,36 @@
-"""Shared PDF text export helpers."""
+"""Shared PDF generation helpers."""
 
 import textwrap
+from pathlib import Path
 
-PDF_LINES_PER_PAGE = 52
+import weasyprint
+from jinja2 import Environment, FileSystemLoader
+
 PDF_LINE_WIDTH = 95
+PDF_LINES_PER_PAGE = 52
+
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
+_jinja_env = Environment(loader=FileSystemLoader(str(_TEMPLATE_DIR)), autoescape=True)
+
+
+def build_pdf_from_template(template_name: str, context: dict) -> bytes:
+    """Render a Jinja2 HTML template and convert to PDF bytes using WeasyPrint."""
+    template = _jinja_env.get_template(template_name)
+    html_content = template.render(**context)
+    result: bytes = weasyprint.HTML(string=html_content).write_pdf()
+    return result
+
+
+def append_wrapped(lines: list[str], prefix: str, value: str | None) -> None:
+    """Append wrapped key/value text lines for plain-text PDF output."""
+    if value is None:
+        return
+
+    wrapped = textwrap.wrap(value, width=PDF_LINE_WIDTH) or [""]
+    lines.append(f"{prefix}: {wrapped[0]}")
+
+    for continuation in wrapped[1:]:
+        lines.append(f"{prefix} (cont.): {continuation}")
 
 
 def escape_pdf_text(value: str) -> str:
@@ -30,12 +57,11 @@ def chunk_lines(lines: list[str], chunk_size: int) -> list[list[str]]:
     """Split text lines into PDF pages."""
     if not lines:
         return [[""]]
-
     return [lines[index : index + chunk_size] for index in range(0, len(lines), chunk_size)]
 
 
 def build_pdf(title: str, body_lines: list[str]) -> bytes:
-    """Build a minimal multi-page PDF document."""
+    """Build a minimal multi-page plain-text PDF document."""
     lines = [title, "", *body_lines]
     pages = chunk_lines(lines, PDF_LINES_PER_PAGE)
 
@@ -88,15 +114,3 @@ def build_pdf(title: str, body_lines: list[str]) -> bytes:
     pdf.extend(f"startxref\n{xref_start}\n%%EOF".encode("ascii"))
 
     return bytes(pdf)
-
-
-def append_wrapped(lines: list[str], prefix: str, value: str | None) -> None:
-    """Append wrapped key/value text lines for PDF output."""
-    if value is None:
-        return
-
-    wrapped = textwrap.wrap(value, width=PDF_LINE_WIDTH) or [""]
-    lines.append(f"{prefix}: {wrapped[0]}")
-
-    for continuation in wrapped[1:]:
-        lines.append(f"{prefix} (cont.): {continuation}")

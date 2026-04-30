@@ -83,6 +83,15 @@ ASSIGN_TENANTS_EXAMPLE: dict[str, Any] = {
 }
 
 
+MY_TENANTS_EXAMPLE: list[dict[str, Any]] = [
+    {
+        "id": "2b0f8a08-6baf-4e74-9c3e-6d1d3f8a8b5a",
+        "name": "Blue Clinic",
+        "slug": "blue-clinic",
+    }
+]
+
+
 COMMON_AUTH_RESPONSES: OpenAPIResponses = {
     401: {"description": "Missing, invalid, or expired bearer token."},
     403: {"description": "Authenticated user is inactive, locked, or not permitted to use this endpoint."},
