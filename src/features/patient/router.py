@@ -60,7 +60,7 @@ _ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 router = APIRouter(
     prefix="/patients",
     tags=["Patient Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER)), Depends(require_tenant_membership)],
+    dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT)), Depends(require_tenant_membership)],
 )
 
 
@@ -198,6 +198,7 @@ async def get_patient(
 async def export_patient_complete_pdf(
     patient_id: int,
     current_user: User = Depends(require_tenant_membership),
+    _: User = Depends(require_role(UserRole.TENANT_OWNER)),
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
     """Queue a complete patient dossier export."""
