@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
@@ -118,12 +118,10 @@ async def get_export_job(
     summary="Download an export file",
     description=(
         "Download a completed export file for the authenticated user in the current tenant. The route is "
-        "creator-scoped and tenant-scoped, and it only succeeds after the job reaches `completed`. In local "
-        "storage mode the response is a direct file download. In S3-compatible storage mode the API returns a "
-        "`307 Temporary Redirect` to a presigned object URL. The file metadata must include the stored path, "
-        "filename, and content type; otherwise the request fails with `409`."
+        "creator-scoped and tenant-scoped, and it only succeeds after the job reaches `completed`. "
+        "The file is always returned as a direct binary download regardless of the configured storage backend."
     ),
-    response_description="Binary file download or temporary redirect to a presigned URL.",
+    response_description="Binary file download.",
     responses=EXPORT_DOWNLOAD_RESPONSES,
 )
 async def download_export_file(
@@ -140,9 +138,13 @@ async def download_export_file(
             media_type=download.content_type,
             filename=download.filename,
         )
-    if download.url is None:
-        raise RuntimeError("Export download target is incomplete")
-    return RedirectResponse(download.url, status_code=307)
+    if download.body is not None:
+        return Response(
+            content=download.body,
+            media_type=download.content_type,
+            headers={"Content-Disposition": f'attachment; filename="{download.filename}"'},
+        )
+    raise RuntimeError("Export download target is incomplete")
 
 
 @internal_router.post(

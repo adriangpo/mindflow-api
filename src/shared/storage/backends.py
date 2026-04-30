@@ -28,6 +28,7 @@ class StorageDownload:
     content_type: str
     path: Path | None = None
     url: str | None = None
+    body: bytes | None = None
 
 
 class StorageBackend(Protocol):
@@ -125,6 +126,12 @@ class S3StorageBackend:
     ):
         if not endpoint_url:
             raise RuntimeError("S3_ENDPOINT_URL must be configured when STORAGE_BACKEND=s3")
+        if "<" in endpoint_url or ">" in endpoint_url:
+            raise RuntimeError(
+                "S3_ENDPOINT_URL contains an unresolved placeholder. "
+                "Replace '<accountid>' with your Cloudflare account ID "
+                "(found in the Cloudflare dashboard under R2 > Overview)."
+            )
         if not bucket_name:
             raise RuntimeError("S3_BUCKET_NAME must be configured when STORAGE_BACKEND=s3")
         if not access_key_id:
@@ -184,22 +191,14 @@ class S3StorageBackend:
         filename: str,
         content_type: str,
     ) -> StorageDownload:
-        """Resolve a short-lived presigned download URL."""
+        """Fetch bytes from S3 and return them for direct server-side streaming."""
         key = self._normalize_key(relative_path)
-        url = self._get_client().generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": self.bucket_name,
-                "Key": key,
-                "ResponseContentDisposition": f'attachment; filename="{filename}"',
-                "ResponseContentType": content_type,
-            },
-            ExpiresIn=300,
-        )
+        response = self._get_client().get_object(Bucket=self.bucket_name, Key=key)
+        body = response["Body"].read()
         return StorageDownload(
             filename=filename,
             content_type=content_type,
-            url=url,
+            body=body,
         )
 
 

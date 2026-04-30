@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.dependencies import get_tenant_db_session
@@ -296,15 +296,12 @@ async def update_medical_record(
     "/{record_id}/attachments/{index}",
     summary="Download a medical record attachment",
     description=(
-        "Download or redirect to one attachment stored for a medical record. "
-        "The index corresponds to the position of the attachment in the record's attachment list. "
-        "For local storage the response is a direct binary download. "
-        "For S3-compatible storage the API returns a 307 redirect to a presigned URL."
+        "Download one attachment stored for a medical record as a direct binary download. "
+        "The index corresponds to the position of the attachment in the record's attachment list."
     ),
-    response_description="Binary file download or temporary redirect to a presigned URL.",
+    response_description="Binary file download.",
     responses={
         200: {"description": "Binary file download."},
-        307: {"description": "Temporary redirect to a presigned S3 URL."},
         404: {"description": "Attachment not found at the given index."},
     },
 )
@@ -313,7 +310,7 @@ async def get_medical_record_attachment(
     index: int,
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Serve or redirect to a stored attachment for a medical record."""
+    """Serve a stored attachment for a medical record."""
     record = await MedicalRecordService.require_record(session, record_id)
 
     if index < 0 or index >= len(record.attachments):
@@ -337,6 +334,10 @@ async def get_medical_record_attachment(
 
     if download.path is not None:
         return FileResponse(path=download.path, media_type=content_type, filename=path.name)
-    if download.url is not None:
-        return RedirectResponse(download.url, status_code=307)
+    if download.body is not None:
+        return Response(
+            content=download.body,
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
+        )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Attachment could not be resolved.")

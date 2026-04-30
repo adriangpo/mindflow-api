@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,15 +311,12 @@ async def update_patient_profile_photo(
     "/{patient_id}/profile-photo",
     summary="Download patient profile photo",
     description=(
-        "Serve or redirect to the stored profile photo for a patient. "
-        "For local storage the response is a direct binary download. "
-        "For S3-compatible storage the API returns a 307 redirect to a presigned URL. "
+        "Serve the stored profile photo for a patient as a direct binary download. "
         "Returns 404 when no photo has been uploaded."
     ),
-    response_description="Binary image download or temporary redirect to presigned URL.",
+    response_description="Binary image download.",
     responses={
         200: {"description": "Binary image file."},
-        307: {"description": "Temporary redirect to a presigned S3 URL."},
         404: {"description": "No profile photo found for this patient."},
     },
 )
@@ -327,15 +324,12 @@ async def get_patient_profile_photo(
     patient_id: int,
     session: AsyncSession = Depends(get_tenant_db_session),
 ):
-    """Serve the patient profile photo or redirect to its presigned URL."""
+    """Serve the patient profile photo."""
     patient = await PatientService.require_patient(session, patient_id)
     photo_ref = patient.profile_photo_url
 
     if not photo_ref:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No profile photo found for this patient.")
-
-    if photo_ref.startswith(("http://", "https://")):
-        return RedirectResponse(photo_ref, status_code=307)
 
     try:
         download = PatientStorage().resolve_profile_photo_download(photo_ref)
@@ -344,8 +338,12 @@ async def get_patient_profile_photo(
 
     if download.path is not None:
         return FileResponse(path=download.path, media_type=download.content_type, filename=download.filename)
-    if download.url is not None:
-        return RedirectResponse(download.url, status_code=307)
+    if download.body is not None:
+        return Response(
+            content=download.body,
+            media_type=download.content_type,
+            headers={"Content-Disposition": f'inline; filename="{download.filename}"'},
+        )
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile photo could not be resolved.")
 
 
