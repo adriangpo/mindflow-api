@@ -11,8 +11,9 @@ from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select
 
 from src.config.settings import settings
-from src.features.auth.dependencies import get_optional_user
+from src.features.auth.dependencies import get_optional_user, require_tenant_membership
 from src.features.auth.exceptions import (
+    InsufficientPermissionsException,
     InvalidTokenException,
     RefreshTokenExpiredException,
     RefreshTokenNotFoundException,
@@ -534,6 +535,32 @@ class TestGetOptionalUserDependency:
 
         assert resolved_user is not None
         assert resolved_user.id == user.id
+
+    async def test_returns_none_for_invalid_token(self, session):
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials="invalid.token.here")
+        assert await get_optional_user(credentials=credentials, session=session) is None
+
+
+class TestRequireTenantMembershipDependency:
+    async def test_admin_bypasses_membership_check(self, make_user, tenant_id):
+        """Admin passes regardless of tenant_ids assignment."""
+        admin = await make_user(roles=[UserRole.ADMIN])
+        result = await require_tenant_membership(tenant_id=tenant_id, current_user=admin)
+        assert result is admin
+
+    async def test_member_passes(self, make_user, tenant_id):
+        """Non-admin user assigned to the tenant passes."""
+        user = await make_user()
+        user.tenant_ids = [tenant_id]
+        result = await require_tenant_membership(tenant_id=tenant_id, current_user=user)
+        assert result is user
+
+    async def test_non_member_raises_403(self, make_user, tenant_id):
+        """Non-admin user not assigned to the tenant is rejected."""
+        user = await make_user()
+        user.tenant_ids = []
+        with pytest.raises(InsufficientPermissionsException):
+            await require_tenant_membership(tenant_id=tenant_id, current_user=user)
 
 
 # User model unit tests (no HTTP, no DB)

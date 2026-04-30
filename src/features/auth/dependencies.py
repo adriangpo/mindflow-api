@@ -155,7 +155,7 @@ async def get_optional_user(
 
     try:
         return await get_current_user(credentials, session=session)
-    except InvalidTokenException, UserInactiveException, UserLockedException:
+    except (InvalidTokenException, UserInactiveException, UserLockedException):
         return None
 
 
@@ -164,6 +164,8 @@ async def require_tenant_membership(
     current_user: User = Depends(get_current_active_user),
 ) -> User:
     """Ensure authenticated user is assigned to requested tenant."""
+    if UserRole.ADMIN.value in current_user.roles:
+        return current_user
     if tenant_id not in current_user.tenant_ids:
         raise InsufficientPermissionsException(detail="User is not assigned to requested tenant")
     return current_user

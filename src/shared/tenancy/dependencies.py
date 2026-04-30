@@ -40,7 +40,7 @@ async def require_tenant(request: Request) -> UUID:
     # Validate that tenant_id is a valid UUID
     try:
         tenant_uuid = UUID(tenant_id)
-    except ValueError, AttributeError:
+    except (ValueError, AttributeError):
         raise HTTPException(
             status_code=400,
             detail="X-Tenant-ID must be a valid UUID",
