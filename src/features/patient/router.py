@@ -60,7 +60,7 @@ _ALLOWED_PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
 router = APIRouter(
     prefix="/patients",
     tags=["Patient Management"],
-    dependencies=[Depends(require_role(UserRole.TENANT_OWNER)), Depends(require_tenant_membership)],
+    dependencies=[Depends(require_role(UserRole.TENANT_OWNER, UserRole.ASSISTANT)), Depends(require_tenant_membership)],
 )
 
 
