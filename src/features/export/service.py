@@ -103,7 +103,7 @@ class ExportService:
             body={"job_id": snapshot.id},
             method="POST",
             headers={"Content-Type": "application/json"},
-            deduplication_id=f"export:{snapshot.id}",
+            deduplication_id=f"export-{snapshot.id}",
         )
 
     @staticmethod

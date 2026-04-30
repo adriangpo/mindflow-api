@@ -77,7 +77,7 @@ async def enqueue_notification_message(
         method="POST",
         headers={"Content-Type": "application/json"},
         delay=delay_seconds or None,
-        deduplication_id=f"notification:{message_id}",
+        deduplication_id=f"notification-{message_id}",
     )
     return cast(PublishResponse, response).message_id
 
